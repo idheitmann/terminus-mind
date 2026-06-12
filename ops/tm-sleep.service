@@ -1,0 +1,11 @@
+[Unit]
+Description=terminus-mind nightly sleep cycle (distill episodes + consolidate)
+After=terminusdb.service llama-server.service
+Wants=llama-server.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ivanh/dev/terminus-mind
+Environment=TM_JOURNAL=/home/ivanh/dev/terminus-mind/journal
+ExecStart=/bin/bash -c 'echo "=== sleep $(date -Is) ===" >> journal/sleep-runs.log && uv run --no-active tm sleep --limit 50 >> journal/sleep-runs.log 2>&1'
+TimeoutStartSec=30min

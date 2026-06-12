@@ -93,7 +93,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("reindex", help="rebuild the embedding index from the database")
     sub.add_parser("review", help="beliefs most worth verifying with the human")
     sub.add_parser("conflicts", help="unresolved contradicted beliefs")
-    sub.add_parser("consolidate", help="run the deterministic sleep pass")
+    sub.add_parser("consolidate", help="run the deterministic lifecycle pass")
+
+    sp = sub.add_parser("sleep", help="full sleep cycle: distill episodes (local LLM) + consolidate")
+    sp.add_argument("--review", action="store_true",
+                    help="leave the branch unmerged for human inspection")
+    sp.add_argument("--limit", type=int, default=20, help="max episodes to distill")
 
     sp = sub.add_parser("vocab", help="the learned ontology")
     sp.add_argument("--kind", choices=["predicate", "entity_type"])
@@ -199,6 +204,10 @@ def _run(mind: Mind, args):  # noqa: C901
         return mind.conflicts()
     if args.cmd == "consolidate":
         return mind.consolidate()
+    if args.cmd == "sleep":
+        from .sleep import run_sleep
+
+        return run_sleep(mind, limit=args.limit, merge=not args.review)
     if args.cmd == "vocab":
         terms = mind.vocab(kind=args.kind, status=args.status)
         if args.json:

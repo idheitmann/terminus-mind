@@ -199,6 +199,35 @@ class TerminusClient:
         )
         return out.get("bindings", []) if isinstance(out, dict) else []
 
+    # -- branches ---------------------------------------------------------
+
+    def create_branch(self, name: str, origin: str = "main") -> None:
+        self._request(
+            "POST",
+            f"/api/branch/{self.team}/{self.db}/local/branch/{name}",
+            json={"origin": f"{self.team}/{self.db}/local/branch/{origin}"},
+        )
+
+    def delete_branch(self, name: str) -> None:
+        self._request("DELETE", f"/api/branch/{self.team}/{self.db}/local/branch/{name}")
+
+    def rebase_from(self, source_branch: str, *, author: str, target: str = "main") -> None:
+        """Fast-forward/rebase `target` to include `source_branch`'s commits."""
+        self._request(
+            "POST",
+            f"/api/rebase/{self.team}/{self.db}/local/branch/{target}",
+            json={
+                "rebase_from": f"{self.team}/{self.db}/local/branch/{source_branch}",
+                "author": author,
+            },
+        )
+
+    def on_branch(self, name: str) -> "TerminusClient":
+        """A sibling client addressing the same db on another branch."""
+        c = TerminusClient(server=self.server, team=self.team, db=self.db,
+                          user=self.user, password=self.password, branch=name)
+        return c
+
     # -- versioning / introspection -----------------------------------------
 
     def log(self, count: int = 10, start: int = 0) -> list[dict]:

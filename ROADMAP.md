@@ -15,12 +15,16 @@ prompt fragment makes it reliable. Tune from transcripts: `HUMAN_WEIGHT`,
 `SIMILARITY_GATE`, promotion thresholds — these are guesses until real use
 calibrates them.
 
-**1.2 The sleep job.** A scheduled agent run (cron/systemd timer) that pulls
-`unconsolidated_episodes()`, re-extracts claims with full context through the
-same primitives, `mark_consolidated()`, then `consolidate()`. Run it on a
-TerminusDB **branch** and merge after `tm` review — a bad sleep run becomes
-an unmerged branch instead of a polluted world model. The branch plumbing is
-verified; needs a `Mind.branch()/merge()` wrapper and a runner script.
+**1.2 The sleep job. ✅ DONE.** `tm sleep` (sleep.py): local Qwen2.5-7B
+(llama.cpp, TM_LLM_URL) distills unconsolidated episodes into candidate
+claims on a `sleep-<timestamp>` branch — adjudication is deterministic
+(confirm equivalents by overlap, reuse vocabulary under resistance, skip +
+journal weak matches), then `consolidate()`, then rebase into main
+(`--review` leaves the branch for inspection). Nightly via
+`ops/tm-sleep.timer` (03:47, before the 04:23 backup). Supersession is
+deliberately excluded — that judgment stays with hermes/humans. First live
+run: 31 extracted, 17 confirms, 5 asserts, 0 duplicates; entity gate
+correctly refused `TerminusDB v12` vs `TerminusDB`.
 
 **1.3 Semantic recall (embedding sidecar). ✅ DONE.** llama.cpp +
 nomic-embed-text-v1.5 (`ops/tm-embed.service`, port 8089); numpy flat-cosine

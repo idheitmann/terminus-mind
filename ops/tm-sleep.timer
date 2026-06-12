@@ -1,0 +1,9 @@
+[Unit]
+Description=Nightly terminus-mind sleep cycle
+
+[Timer]
+OnCalendar=*-*-* 03:47
+Persistent=true
+
+[Install]
+WantedBy=timers.target

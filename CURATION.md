@@ -23,10 +23,12 @@ Run in this order; each feeds the next.
    actionable (bugs, friction patterns), open a Claude Code session here
    and say "run the triage" — fixes, the committed report, and
    `tm journal --archive` happen there, not by hand.
-3. **`tm consolidate`** — runs promotion/retirement/establishment and
-   prints vocabulary nominations. *Until the sleep job exists (roadmap
-   1.2) this is the only thing that runs the lifecycle — skipping it means
-   beliefs never get promoted no matter how much evidence accumulates.*
+3. **Check the sleep log** — the nightly 03:47 sleep cycle distills
+   episodes and runs the lifecycle automatically; its reports append to
+   `journal/sleep-runs.log`. Skim the last few: `skipped` entries and
+   `vocab_nominated` lists are your inputs for the next two steps. (If the
+   log shows errors or no runs, `tm sleep --review` runs one manually and
+   leaves the branch for inspection.)
 4. **`tm vocab --status provisional`** — act on the nominations from step 3:
    - genuinely new concept → `tm ratify predicate <name>`
    - duplicate of an existing term → `tm merge-term predicate <name> <into>`
