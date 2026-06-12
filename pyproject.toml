@@ -1,0 +1,24 @@
+[project]
+name = "terminus-mind"
+version = "0.1.0"
+description = "A self-evolving agent memory system on TerminusDB: a world model proven over time through human interaction."
+readme = "README.md"
+authors = [
+    { name = "idheitmann", email = "idheitmann@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "httpx>=0.27",
+]
+
+[project.scripts]
+tm = "terminus_mind.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.14,<0.12.0"]
+build-backend = "uv_build"
