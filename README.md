@@ -58,11 +58,32 @@ tm log / tm history Claim/... / tm stats
 
 ## Agent integration (hermes)
 
+**Recommended: MCP.** `tm-mcp` serves the memory over stdio to any
+MCP-speaking agent — the world model stays decoupled from (and outlives) any
+one framework. Point hermes' MCP config at:
+
+```json
+{
+  "mcpServers": {
+    "memory": {
+      "command": "uv",
+      "args": ["run", "--project", "/path/to/terminus-mind", "tm-mcp"],
+      "env": { "TM_AGENT": "hermes" }
+    }
+  }
+}
+```
+
+`TM_AGENT` is the author recorded on every memory commit; `TM_DB` etc.
+override the connection (defaults match the local podman instance).
+
+**Fallback: direct import** (hermes runs Python) — same tools, in-process:
+
 ```python
 from terminus_mind import Mind
 from terminus_mind.tools import TOOL_SPECS, dispatch
 
-mind = Mind(agent="hermes")          # author recorded on every commit
+mind = Mind(agent="hermes")
 mind.init()
 # register TOOL_SPECS (OpenAI function-calling format) with the model
 result = dispatch(mind, tool_call.name, tool_call.arguments)
