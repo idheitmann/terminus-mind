@@ -82,6 +82,49 @@ def test_sleep_review_mode_leaves_branch(mind):
     mind.client.delete_branch(report["branch"])
 
 
+def test_pronoun_subjects_remap_to_self(mind, monkeypatch):
+    monkeypatch.setenv("TM_SELF", "Ivan")
+    mind.observe("first-person episode")
+    cands = [{"subject": "I", "predicate": "uses_tool", "object": "Logseq", "value": None,
+              "fact_text": "I use Logseq as a tool."},
+             {"subject": "He", "predicate": "lives_in", "object": None, "value": "Berlin",
+              "fact_text": "He lives in Berlin."}]
+    report = run_sleep(mind, llm=FakeLLM([cands]))
+    assert report["asserted"] == 1
+    assert any("unresolvable pronoun" in s["reason"] for s in report["skipped"])
+    [claim] = mind.recall(subject="Ivan", touch=False)
+    assert claim["fact_text"] == "Ivan use Logseq as a tool."
+    assert not mind.find_entity("I")
+
+
+def test_pronouns_skip_without_self(mind, monkeypatch):
+    monkeypatch.delenv("TM_SELF", raising=False)
+    mind.observe("ep")
+    report = run_sleep(mind, llm=FakeLLM([[{"subject": "I", "predicate": "wants",
+                                            "object": None, "value": "tea",
+                                            "fact_text": "I want tea."}]]))
+    assert report["asserted"] == 0
+    assert any("TM_SELF unset" in s["reason"] for s in report["skipped"])
+
+
+def test_sibling_facts_do_not_cross_confirm(mind):
+    mind.observe("ep1")
+    run_sleep(mind, llm=FakeLLM([[
+        {"subject": "Ivan", "predicate": "uses_tool", "object": "ClickUp", "value": None,
+         "fact_text": "Ivan uses tool ClickUp"}]]))
+    mind.observe("ep2")
+    report = run_sleep(mind, llm=FakeLLM([[
+        {"subject": "Ivan", "predicate": "uses_tool", "object": "Everhour", "value": None,
+         "fact_text": "Ivan uses tool Everhour"},
+        {"subject": "Ivan", "predicate": "uses_tool", "object": "ClickUp", "value": None,
+         "fact_text": "Ivan relies on the tool ClickUp daily"}]]))
+    # different object -> new claim; same object (different words) -> confirm
+    assert report["asserted"] == 1 and report["confirmed"] == 1
+    claims = {c["fact_text"]: c for c in mind.recall(subject="Ivan", touch=False)}
+    assert claims["Ivan uses tool ClickUp"]["confirms"] == 2
+    assert claims["Ivan uses tool Everhour"]["confirms"] == 1
+
+
 def test_sleep_no_llm_still_consolidates(mind):
     class DownLLM:
         url = "http://down"

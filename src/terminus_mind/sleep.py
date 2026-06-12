@@ -51,8 +51,37 @@ Rules:
 - 0 claims is a fine answer: return []."""
 
 # adjudication thresholds (deterministic phase)
-CONFIRM_OVERLAP = 0.75   # fact_text token overlap to treat as the same claim
+CONFIRM_OVERLAP = 0.9    # fact_text overlap fallback — near-identical sentences only
 REUSE_SIMILARITY = 0.75  # resistance suggestion strong enough to auto-reuse
+
+# 7B models ignore prompt-level pronoun rules often enough that this must be
+# a code guard (first nightly run created an Entity/I with 11 claims).
+# First-person pronouns remap to TM_SELF when set; everything else skips.
+SELF_PRONOUNS = {"i", "me", "my", "myself", "the user", "user"}
+OTHER_PRONOUNS = {"he", "she", "they", "we", "him", "her", "them", "it"}
+
+
+def _resolve_pronouns(cand: dict, self_name: str | None, report: dict) -> bool:
+    """Returns False (and records) when the candidate must be skipped."""
+    import re
+
+    for field in ("subject", "object"):
+        val = (cand.get(field) or "").strip()
+        low = val.lower()
+        if low in SELF_PRONOUNS:
+            if not self_name:
+                report["skipped"].append({"claim": cand.get("fact_text"),
+                                          "reason": f"pronoun {field} '{val}' and TM_SELF unset"})
+                return False
+            cand[field] = self_name
+            if cand.get("fact_text"):
+                cand["fact_text"] = re.sub(rf"^{re.escape(val)}\b", self_name,
+                                           cand["fact_text"], flags=re.IGNORECASE)
+        elif low in OTHER_PRONOUNS:
+            report["skipped"].append({"claim": cand.get("fact_text"),
+                                      "reason": f"unresolvable pronoun {field} '{val}'"})
+            return False
+    return True
 
 
 def _overlap(a: str, b: str) -> float:
@@ -89,6 +118,9 @@ def run_sleep(
     report["branch"] = branch
     bmind = Mind(mind.client.on_branch(branch), agent="sleep")
 
+    import os
+
+    self_name = os.environ.get("TM_SELF")
     vocab = sorted(t["name"] for t in bmind.vocab(kind="predicate")
                    if t["status"] != "deprecated")
     entities = sorted(e["name"] for e in bmind.client.list_docs("Entity"))
@@ -114,6 +146,8 @@ def run_sleep(
             if (cand.get("object") is None) == (cand.get("value") is None):
                 continue
             report["extracted"] += 1
+            if not _resolve_pronouns(cand, self_name, report):
+                continue
             try:
                 _adjudicate(bmind, cand, ep["@id"], report)
             except Exception as e:  # one bad candidate never aborts the run
@@ -132,9 +166,26 @@ def run_sleep(
 def _adjudicate(bmind: Mind, cand: dict, episode_id: str, report: dict) -> None:
     """Deterministic adjudication: confirm equivalents, assert novelty,
     let resistance arbitrate vocabulary."""
+    from urllib.parse import unquote
+
+    from .mind import _norm
+
+    def same_object(hit: dict) -> bool:
+        if cand.get("object") is not None:
+            ent = unquote((hit.get("object_entity") or "").removeprefix("Entity/"))
+            return ent.lower() == cand["object"].strip().lower()
+        return ((hit.get("object_value") or "").strip().lower()
+                == (cand.get("value") or "").strip().lower())
+
+    pred = _norm(cand["predicate"])
     existing = bmind.recall(subject=cand["subject"], touch=False, limit=200)
     for hit in existing:
-        if _overlap(hit["fact_text"], cand.get("fact_text") or "") >= CONFIRM_OVERLAP:
+        # equivalence = same relation to the same thing; fact-text overlap
+        # alone cross-confirms siblings ("uses tool X" ~ "uses tool Y")
+        if hit["predicate"] == pred and (
+            same_object(hit)
+            or _overlap(hit["fact_text"], cand.get("fact_text") or "") >= CONFIRM_OVERLAP
+        ):
             bmind.confirm(hit["@id"], episode=episode_id, by_human=False)
             report["confirmed"] += 1
             return

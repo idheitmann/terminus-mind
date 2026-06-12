@@ -7,5 +7,6 @@ Wants=llama-server.service
 Type=oneshot
 WorkingDirectory=/home/ivanh/dev/terminus-mind
 Environment=TM_JOURNAL=/home/ivanh/dev/terminus-mind/journal
+Environment=TM_SELF=Ivan
 ExecStart=/bin/bash -c 'echo "=== sleep $(date -Is) ===" >> journal/sleep-runs.log && uv run --no-active tm sleep --limit 50 >> journal/sleep-runs.log 2>&1'
 TimeoutStartSec=30min
