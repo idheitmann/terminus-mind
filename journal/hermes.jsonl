@@ -1,0 +1,1 @@
+{"ts": "2026-06-12T07:13:04.760793+00:00", "agent": "hermes", "kind": "slow", "severity": "minor", "tool": "tm_cli", "expected": "clean output", "got": "warning: VIRTUAL_ENV does not match the project environment path on every call", "note": "uv run warns about VIRTUAL_ENV mismatch on every tm CLI invocation. Fix: add --no-active flag to uv run args."}

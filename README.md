@@ -40,6 +40,15 @@ uv run tm init          # create the 'mind' database + schema
 uv run pytest           # integration tests (uses a throwaway database)
 ```
 
+**Embedding sidecar (optional but recommended):** semantic recall and a
+semantic vocabulary gate, via a local llama.cpp embedding server
+(nomic-embed-text-v1.5). Install `ops/tm-embed.service` as a systemd user
+unit (adjust model path), then `tm reindex`. Without it, everything degrades
+gracefully to exact/string matching. Env: `TM_EMBED_URL` (default
+`http://127.0.0.1:8089`), `TM_EMBED_GATE` (resistance cosine, default 0.74),
+`TM_INDEX` (index cache dir). The index is a rebuildable cache, never a
+second source of truth.
+
 ## CLI
 
 ```sh

@@ -36,6 +36,38 @@ class Mind:
     def __init__(self, client: TerminusClient | None = None, agent: str = "agent"):
         self.client = client or TerminusClient()
         self.agent = agent
+        self._embedder = None
+        self._index = None
+
+    # -- embedding sidecar (optional; absent server degrades gracefully) --
+
+    @property
+    def embedder(self):
+        if self._embedder is None:
+            from .embeddings import Embedder
+
+            self._embedder = Embedder()
+        return self._embedder
+
+    def _vec_index(self):
+        if self._index is None:
+            from .embeddings import VectorIndex
+
+            self._index = VectorIndex(self.client.db)
+        return self._index
+
+    def _sims(self, ids_texts: list[tuple[str, str]], query: str, kind: str = "query") -> dict[str, float]:
+        """Cosine of query against each (id, text), embedding+caching missing
+        ids. Returns {} whenever the embedding server is unavailable."""
+        if not ids_texts or not self.embedder.available():
+            return {}
+        idx = self._vec_index()
+        texts = dict(ids_texts)
+        missing = idx.missing(list(texts))
+        if missing:
+            idx.upsert(missing, self.embedder.embed([texts[i] for i in missing]))
+        qv = self.embedder.embed([query], kind=kind)[0]
+        return idx.similarities(qv, list(texts))
 
     def init(self) -> bool:
         return bootstrap(self.client, author=self.agent)
@@ -94,18 +126,30 @@ class Mind:
             t["usage_count"] = t.get("usage_count", 0) + 1
             self.client.replace(t, author=self.agent, message=f"vocab use: {kind} {name}")
             return name
-        similar = sorted(
-            (
-                {"name": t["name"], "status": t["status"],
-                 "similarity": scoring.similarity(name, t["name"])}
-                for t in terms.values()
-                if t["status"] != "deprecated"
-            ),
-            key=lambda s: -s["similarity"],
-        )
-        close = [s for s in similar if s["similarity"] >= scoring.SIMILARITY_GATE]
+        live = [t for t in terms.values() if t["status"] != "deprecated"]
+        close = {
+            t["name"]: {"name": t["name"], "status": t["status"],
+                        "similarity": scoring.similarity(name, t["name"])}
+            for t in live
+            if scoring.similarity(name, t["name"]) >= scoring.SIMILARITY_GATE
+        }
+        if not force and live:
+            # semantic second opinion: catches works_at ~ employer_of, which
+            # string similarity cannot. Only ever ADDS resistance.
+            from .embeddings import EMBED_GATE
+
+            sems = self._sims(
+                [(f"vocab:{kind}:{t['name']}", t["name"].replace("_", " ")) for t in live],
+                name.replace("_", " "), kind="document",
+            )
+            for t in live:
+                s = sems.get(f"vocab:{kind}:{t['name']}", 0.0)
+                if s >= EMBED_GATE and t["name"] not in close:
+                    close[t["name"]] = {"name": t["name"], "status": t["status"],
+                                        "similarity": round(s, 3)}
         if close and not force:
-            raise NoveltyResisted(kind, name, close[:3])
+            ranked = sorted(close.values(), key=lambda s: -s["similarity"])
+            raise NoveltyResisted(kind, name, ranked[:3])
         self.client.insert(
             {
                 "@type": "VocabTerm",
@@ -192,12 +236,17 @@ class Mind:
                 self.client.replace(existing, author=self.agent, message=f"entity update: {name}")
             return existing["@id"]
         if not force:
+            # string similarity only: bare names carry too little semantics
+            # for the embedding gate (measured: Ada~Grace 0.747 on nomic).
+            # Semantic entity dedup belongs to the consolidation sweep, where
+            # entities have summaries worth embedding.
             close = []
             for e in self.client.list_docs("Entity"):
                 names = [e["name"], *e.get("aliases", [])]
                 best = max(scoring.similarity(name, n) for n in names)
                 if best >= scoring.SIMILARITY_GATE:
-                    close.append({"name": e["name"], "status": e["status"], "similarity": best})
+                    close.append({"name": e["name"], "status": e["status"],
+                                  "similarity": round(best, 3)})
             if close:
                 raise NoveltyResisted(
                     "entity", name, sorted(close, key=lambda s: -s["similarity"])[:3]
@@ -366,14 +415,20 @@ class Mind:
         )
         if not include_expired:
             claims = [c for c in claims if not c.get("expired_at")]
+        sem: dict[str, float] = {}
+        if query:
+            from .embeddings import semantic_relevance
+
+            sem = self._sims([(c["@id"], c["fact_text"]) for c in claims], query)
         results = []
         terms = [t for t in re.split(r"\W+", query.lower()) if t] if query else []
         for c in claims:
             rel = 0.0
-            if terms:
+            if query:
                 text = c["fact_text"].lower()
-                rel = sum(1 for t in terms if t in text) / len(terms)
-                if rel == 0:
+                overlap = sum(1 for t in terms if t in text) / len(terms) if terms else 0.0
+                rel = max(overlap, semantic_relevance(sem.get(c["@id"], -1.0)))
+                if rel < 0.05:
                     continue
             results.append((scoring.rank_score(c, rel), c))
         results.sort(key=lambda rc: -rc[0])
@@ -479,6 +534,25 @@ class Mind:
                 )
         return report
 
+    def reindex(self) -> dict:
+        """Rebuild the embedding index from the database (the index is a
+        cache; this is always safe)."""
+        if not self.embedder.available():
+            return {"available": False, "indexed": 0}
+        idx = self._vec_index()
+        idx.drop()
+        batches: list[tuple[str, str]] = []
+        batches += [(c["@id"], c["fact_text"]) for c in self.client.list_docs("Claim")]
+        batches += [(f"entity:{e['name']}", e["name"]) for e in self.client.list_docs("Entity")]
+        batches += [
+            (f"vocab:{t['kind']}:{t['name']}", t["name"].replace("_", " "))
+            for t in self.client.list_docs("VocabTerm")
+        ]
+        for i in range(0, len(batches), 64):
+            chunk = batches[i : i + 64]
+            idx.upsert([i for i, _ in chunk], self.embedder.embed([t for _, t in chunk]))
+        return {"available": True, "indexed": len(idx)}
+
     # -- introspection -------------------------------------------------------
 
     def stats(self) -> dict:
@@ -497,6 +571,10 @@ class Mind:
             },
             "conflicts": len(self.conflicts()),
             "commits": len(self.client.log(count=10_000)),
+            "embeddings": {
+                "available": self.embedder.available(),
+                "indexed": len(self._vec_index()) if self.embedder.available() else 0,
+            },
         }
 
     def timeline(self, count: int = 20) -> list[dict]:

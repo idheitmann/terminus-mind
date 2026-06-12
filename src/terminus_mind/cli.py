@@ -86,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("--fact", help="new sentence")
     sp.add_argument("--episode")
 
+    sub.add_parser("reindex", help="rebuild the embedding index from the database")
     sub.add_parser("review", help="beliefs most worth verifying with the human")
     sub.add_parser("conflicts", help="unresolved contradicted beliefs")
     sub.add_parser("consolidate", help="run the deterministic sleep pass")
@@ -174,6 +175,8 @@ def _run(mind: Mind, args):  # noqa: C901
         return {"new_claim_id": mind.correct(
             args.claim_id, object=args.object, value=args.value,
             fact_text=args.fact, episode=args.episode)}
+    if args.cmd == "reindex":
+        return mind.reindex()
     if args.cmd == "review":
         q = mind.review_queue()
         if args.json:

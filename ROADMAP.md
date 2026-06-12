@@ -22,13 +22,14 @@ TerminusDB **branch** and merge after `tm` review — a bad sleep run becomes
 an unmerged branch instead of a polluted world model. The branch plumbing is
 verified; needs a `Mind.branch()/merge()` wrapper and a runner script.
 
-**1.3 Semantic recall (embedding sidecar).** Substring matching will miss
-paraphrases almost immediately. Add an optional sidecar index over
-`fact_text` + entity names: numpy flat cosine, keyed by document id,
-rebuildable from the DB (a cache, never a second source of truth). Local
-embedding model or API behind a small interface. This also upgrades the
-**vocabulary resistance gate** from bigram similarity to semantic similarity
-(`employer_of` vs `works_at`), which matters more than recall quality.
+**1.3 Semantic recall (embedding sidecar). ✅ DONE.** llama.cpp +
+nomic-embed-text-v1.5 (`ops/tm-embed.service`, port 8089); numpy flat-cosine
+index cache, `tm reindex`. Recall blends token overlap with semantic
+relevance; the predicate/entity-type resistance gate gets a semantic second
+opinion (gate 0.74, calibrated — it only ever *adds* resistance). Entity
+*names* deliberately excluded: measured Ada~Grace at 0.747, bare names carry
+too little semantics — entity dedup stays in 2.1 where summaries exist.
+Degrades gracefully when the server is down.
 
 ## Phase 1.5 — Hermes plugin & the hindsight transition
 
