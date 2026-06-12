@@ -68,7 +68,10 @@ one framework. Point hermes' MCP config at:
     "tm-mcp": {
       "command": "uv",
       "args": ["run", "--project", "/path/to/terminus-mind", "tm-mcp"],
-      "env": { "TM_AGENT": "hermes" }
+      "env": {
+        "TM_AGENT": "hermes",
+        "TM_JOURNAL": "/path/to/terminus-mind/journal"
+      }
     }
   }
 }
@@ -89,12 +92,20 @@ mind.init()
 result = dispatch(mind, tool_call.name, tool_call.arguments)
 ```
 
-The eight tools encode the adjudication loop in their descriptions: observe
+The nine tools encode the adjudication loop in their descriptions: observe
 each exchange, **recall before asserting**, then choose
 assert / confirm / supersede / contradict. Vocabulary resistance comes back
 as a normal result (`resisted: true` + suggestions) so the model adjudicates
 instead of crashing. `memory_review` gives the agent questions to weave into
-conversation — uncertainty is the engine of the human-proving loop.
+conversation — uncertainty is the engine of the human-proving loop. Add
+[prompts/memory.md](prompts/memory.md) to the agent's system prompt to make
+the loop reliable.
+
+**Friction journal.** `memory_journal` is where the agent reports problems
+with the memory system *itself* (resistance misfires, recall misses, errors)
+— plain JSONL under `journal/`, deliberately outside the database so it
+works even when the database doesn't. `tm journal` aggregates by kind;
+repeated frictions become threshold changes or roadmap items.
 
 The agent's offline "sleep" job should pull `unconsolidated_episodes()`,
 distill them through the same primitives, `mark_consolidated()`, then run

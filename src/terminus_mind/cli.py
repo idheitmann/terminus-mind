@@ -103,6 +103,10 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("name")
     sp.add_argument("into")
 
+    sp = sub.add_parser("journal", help="friction reports about the memory system itself")
+    sp.add_argument("--agent", dest="journal_agent", help="filter to one agent's journal")
+    sp.add_argument("--tail", type=int, help="show the last N raw entries instead of the summary")
+
     sp = sub.add_parser("log", help="commit timeline (every memory change)")
     sp.add_argument("-n", type=int, default=20)
 
@@ -187,6 +191,13 @@ def _run(mind: Mind, args):  # noqa: C901
         return mind.ratify_term(args.kind, args.name)
     if args.cmd == "merge-term":
         return {"claims_rewritten": mind.merge_term(args.kind, args.name, args.into)}
+    if args.cmd == "journal":
+        from .journal import read_entries, summarize
+
+        entries = read_entries(agent=args.journal_agent)
+        if args.tail:
+            return entries[-args.tail:]
+        return summarize(entries)
     if args.cmd == "log":
         return mind.timeline(count=args.n)
     if args.cmd == "history":

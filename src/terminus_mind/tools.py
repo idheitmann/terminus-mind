@@ -154,6 +154,32 @@ TOOL_SPECS: list[dict] = [
         },
     },
     {
+        "name": "memory_journal",
+        "description": (
+            "Report friction with the memory system ITSELF (not facts about the world): "
+            "vocabulary resistance that blocked a genuinely different term, a recall that "
+            "missed something you know is stored, not knowing which memory tool applied, "
+            "errors, slowness. One short entry at the moment of friction, then move on - "
+            "never let documentation interrupt the task. These reports drive tuning of the "
+            "memory system; repeated frictions get fixed."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string",
+                         "enum": ["resistance_misfire", "recall_miss", "unclear_choice",
+                                  "error", "slow", "other"]},
+                "note": {"type": "string", "description": "What happened, one or two sentences."},
+                "tool": {"type": "string", "description": "Which memory tool was involved."},
+                "expected": {"type": "string", "description": "What you expected."},
+                "got": {"type": "string", "description": "What actually happened."},
+                "severity": {"type": "string", "enum": ["minor", "major", "blocking"],
+                             "default": "minor"},
+            },
+            "required": ["kind", "note"],
+        },
+    },
+    {
         "name": "memory_review",
         "description": (
             "The beliefs most worth verifying with the human right now (most uncertain x most "
@@ -201,6 +227,14 @@ def dispatch(mind: Mind, name: str, arguments: dict | str) -> dict:
                 by_human=args.get("by_human", False), pin=args.get("pin", False))}
         if name == "memory_about":
             return mind.about(args["entity"])
+        if name == "memory_journal":
+            from .journal import write_entry
+
+            entry = write_entry(
+                mind.agent, args["kind"], args["note"], tool=args.get("tool"),
+                expected=args.get("expected"), got=args.get("got"),
+                severity=args.get("severity", "minor"))
+            return {"journaled": True, "ts": entry["ts"]}
         if name == "memory_review":
             return {"review_queue": mind.review_queue(limit=args.get("limit", 5)),
                     "conflicts": mind.conflicts()}
