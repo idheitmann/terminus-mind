@@ -65,7 +65,7 @@ one framework. Point hermes' MCP config at:
 ```json
 {
   "mcpServers": {
-    "memory": {
+    "tm-mcp": {
       "command": "uv",
       "args": ["run", "--project", "/path/to/terminus-mind", "tm-mcp"],
       "env": { "TM_AGENT": "hermes" }
