@@ -30,6 +30,49 @@ embedding model or API behind a small interface. This also upgrades the
 **vocabulary resistance gate** from bigram similarity to semantic similarity
 (`employer_of` vs `works_at`), which matters more than recall quality.
 
+## Phase 1.5 — Hermes plugin & the hindsight transition
+
+Hermes' memory-provider plugin API
+([guide](https://hermes-agent.nousresearch.com/docs/developer-guide/memory-provider-plugin))
+justifies revisiting the earlier MCP-only stance: hooks automate what the
+prompt fragment can only encourage. MCP stays — it's how every *other*
+agent reaches the memory — the plugin is hermes-specific deep integration.
+Contract facts that shape the plan: only one external provider can be
+active at a time, and there is no cross-provider migration support, so the
+transition from hindsight (the current provider) must be deliberate.
+
+**1.5.1 Hindsight feature inventory.** The local hindsight instance
+(`hindsight-api.service`) is what terminus-mind must match or consciously
+drop. Inventory: which hooks its plugin implements, which of its API
+features hermes actually exercises, and what it has that we lack (likely:
+semantic/embedding recall — which would promote 1.3 from nice-to-have to
+cutover-blocker). Output: a gap table with keep/port/drop decisions,
+human-ratified.
+
+**1.5.2 Plugin skeleton.** `plugins/memory/terminus-mind/` wrapping `Mind`
+in-process. Thin, because the tool surface already exists: `get_tool_schemas`
+/ `handle_tool_call` delegate to `TOOL_SPECS` / `dispatch`. Hook mapping:
+`system_prompt_block` → established-belief digest + protocol; `prefetch` →
+`recall(query)`; `sync_turn` → `observe()` on a daemon thread (cheap append,
+honoring the non-blocking contract); `on_session_end` → distill +
+`consolidate()` (the sleep job gets a natural trigger); `on_pre_compress` →
+observe a summary episode before context is discarded; `cli.py` → `tm`
+passthrough. Storage config honors `hermes_home` profile isolation
+(per-profile `TM_DB`).
+
+**1.5.3 Shadow period.** Hindsight stays the active provider; terminus-mind
+keeps running via MCP exactly as now. Compare recall quality on real
+questions for a few weeks; frictions and misses go to the journal. The
+single-provider rule makes this the only clean A/B available — use it.
+
+**1.5.4 Vetted cutover.** Preconditions: gap table resolved, shadow period
+shows recall parity, sleep job proven. Then: import worth-keeping hindsight
+memories as `candidate` claims (source `document`, provenance marked
+`imported:hindsight`, normal credence — they re-prove through use like
+everything else), enable the plugin, disable hindsight but keep it readable
+as an archive until a full review cycle passes. Rollback = re-enable
+hindsight; nothing in terminus-mind is lost by switching back.
+
 ## Phase 2 — Structure earns its keep
 
 **2.1 Entity resolution & dedup sweep.** `merge_entities(keep, drop)`

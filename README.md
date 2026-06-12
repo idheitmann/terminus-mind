@@ -84,6 +84,10 @@ Alternative with no uv in the path at all (faster spawn, but you own keeping
 the venv synced): use `/path/to/terminus-mind/.venv/bin/tm-mcp` as the
 command directly.
 
+**Planned: hermes memory-provider plugin** (ROADMAP 1.5) — deep hook
+integration (`sync_turn`, `prefetch`, `on_session_end`) wrapping the same
+`Mind` in-process; MCP remains the interface for all other agents.
+
 **Fallback: direct import** (hermes runs Python) — same tools, in-process:
 
 ```python
