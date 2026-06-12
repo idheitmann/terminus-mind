@@ -1,0 +1,91 @@
+=== sleep 2026-06-12T03:47:04-07:00 ===
+{
+  "episodes": 4,
+  "extracted": 44,
+  "asserted": 18,
+  "confirmed": 23,
+  "vocab_reused": 1,
+  "skipped": [
+    {
+      "claim": "I work at Hyphae.",
+      "reason": "novel entity 'Hyphae' resisted - did you mean: hyphae-map (0.71, provisional), hyphae-graph (0.67, provisional)? Reuse an existing term or pass force=True to register it as provisional."
+    },
+    {
+      "claim": "I have a performance concern related to TerminusDB limitations.",
+      "reason": "novel entity 'TerminusDB limitations' resisted - did you mean: TerminusDB (0.62, provisional)? Reuse an existing term or pass force=True to register it as provisional."
+    },
+    {
+      "claim": "I have a performance concern related to Logseq CLI.",
+      "reason": "novel entity 'Logseq CLI' resisted - did you mean: Logseq (0.71, provisional)? Reuse an existing term or pass force=True to register it as provisional."
+    }
+  ],
+  "branch": "sleep-20260612-104704",
+  "merged": true,
+  "consolidation": {
+    "promoted": [],
+    "retired": [],
+    "entities_established": [],
+    "vocab_nominated": [
+      {
+        "kind": "predicate",
+        "name": "uses_tool",
+        "usage_count": 10
+      },
+      {
+        "kind": "predicate",
+        "name": "works_at",
+        "usage_count": 7
+      },
+      {
+        "kind": "predicate",
+        "name": "located_in",
+        "usage_count": 4
+      },
+      {
+        "kind": "predicate",
+        "name": "prefers",
+        "usage_count": 6
+      },
+      {
+        "kind": "predicate",
+        "name": "wants",
+        "usage_count": 7
+      },
+      {
+        "kind": "predicate",
+        "name": "cannot",
+        "usage_count": 5
+      },
+      {
+        "kind": "predicate",
+        "name": "built",
+        "usage_count": 3
+      },
+      {
+        "kind": "predicate",
+        "name": "has_north_star",
+        "usage_count": 3
+      },
+      {
+        "kind": "predicate",
+        "name": "practices",
+        "usage_count": 3
+      },
+      {
+        "kind": "predicate",
+        "name": "has_growth_area",
+        "usage_count": 4
+      },
+      {
+        "kind": "predicate",
+        "name": "has_performance_concern",
+        "usage_count": 3
+      },
+      {
+        "kind": "predicate",
+        "name": "has_side_project",
+        "usage_count": 3
+      }
+    ]
+  }
+}

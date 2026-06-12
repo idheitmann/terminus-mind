@@ -39,6 +39,7 @@ SCHEMA: list[dict] = [
         "occurred_at": "xsd:dateTime",
         "source": "EpisodeSource",
         "consolidated": "xsd:boolean",
+        "session": {"@type": "Optional", "@class": "xsd:string"},
     },
     {
         "@type": "Class",
@@ -112,12 +113,15 @@ def bootstrap(client: TerminusClient, *, author: str = "terminus-mind") -> bool:
         )
         created = True
     existing = {
-        d["@id"]
+        d["@id"]: d
         for d in client.list_docs(graph_type="schema")
         if d.get("@type") in ("Class", "Enum")
     }
-    wanted = {d["@id"] for d in SCHEMA}
-    if created or existing != wanted:
+    in_sync = set(existing) == {d["@id"] for d in SCHEMA} and all(
+        all(k in existing[d["@id"]] for k in d if not k.startswith("@"))
+        for d in SCHEMA
+    )
+    if created or not in_sync:
         # full replace is safe: weakening-only by policy, and TerminusDB
         # rejects anything that breaks live instance data.
         client._request(

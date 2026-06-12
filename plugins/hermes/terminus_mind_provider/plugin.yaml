@@ -1,0 +1,13 @@
+name: terminus-mind
+version: 0.1.0
+description: "terminus-mind — self-evolving belief graph on TerminusDB: candidate/confirmed lifecycle, supersession with provenance, conservative vocabulary, full audit trail. Local-only."
+pip_dependencies:
+  - "httpx>=0.27"
+  - "numpy>=2.0"
+requires_env: []
+hooks:
+  - sync_turn
+  - on_session_end
+  - on_pre_compress
+  - on_session_switch
+  - on_memory_write

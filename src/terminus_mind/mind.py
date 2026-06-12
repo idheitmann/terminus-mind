@@ -74,15 +74,24 @@ class Mind:
 
     # -- episodes (lossless, append-only) --------------------------------
 
-    def observe(self, content: str, source: str = "human", occurred_at: str | None = None) -> str:
+    def observe(
+        self,
+        content: str,
+        source: str = "human",
+        occurred_at: str | None = None,
+        session: str | None = None,
+    ) -> str:
+        doc = {
+            "@type": "Episode",
+            "content": content,
+            "occurred_at": occurred_at or scoring.now(),
+            "source": source,
+            "consolidated": False,
+        }
+        if session:
+            doc["session"] = session
         ids = self.client.insert(
-            {
-                "@type": "Episode",
-                "content": content,
-                "occurred_at": occurred_at or scoring.now(),
-                "source": source,
-                "consolidated": False,
-            },
+            doc,
             author=self.agent,
             message=f"observe ({source}): {content[:60]}",
         )
