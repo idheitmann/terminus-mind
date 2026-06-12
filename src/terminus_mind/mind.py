@@ -392,7 +392,17 @@ class Mind:
         if not ent:
             return {"entity": None, "outgoing": [], "incoming": []}
         out = self.client.query_template("Claim", {"subject": ent["@id"]})
-        inc = self.client.query_template("Claim", {"object_entity": ent["@id"]})
+        # template queries 500 on Optional link properties (TerminusDB v12),
+        # so incoming edges go through WOQL instead
+        bindings = self.client.woql(
+            {
+                "@type": "Triple",
+                "subject": {"@type": "NodeValue", "variable": "C"},
+                "predicate": {"@type": "NodeValue", "node": "@schema:object_entity"},
+                "object": {"@type": "Value", "node": ent["@id"]},
+            }
+        )
+        inc = [c for b in bindings if (c := self.client.get(b["C"]))]
         if not include_expired:
             out = [c for c in out if not c.get("expired_at")]
             inc = [c for c in inc if not c.get("expired_at")]

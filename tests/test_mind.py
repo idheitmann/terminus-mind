@@ -126,6 +126,19 @@ def test_review_queue_prefers_uncertain(mind):
     assert prios == sorted(prios, reverse=True)
 
 
+def test_about_includes_incoming_claims(mind):
+    # regression: object_entity template filters 500 in TerminusDB v12;
+    # incoming edges must come back via WOQL (reported by hermes in the field)
+    info = mind.about("Hyphae")
+    assert info["entity"]["name"] == "Hyphae"
+    incoming = {c["fact_text"] for c in info["incoming"]}
+    assert any("Hyphae" in t for t in incoming)
+    assert all(not c.get("expired_at") for c in info["incoming"])
+    # expired incoming claims appear only on request
+    all_in = mind.about("Hyphae", include_expired=True)["incoming"]
+    assert len(all_in) >= len(info["incoming"])
+
+
 def test_introspection(mind):
     stats = mind.stats()
     assert stats["claims"]["total"] >= 5
