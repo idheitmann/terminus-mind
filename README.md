@@ -51,6 +51,9 @@ second source of truth.
 
 ## CLI
 
+Human curation cadence — what to run weekly/monthly and why — is documented
+in [CURATION.md](CURATION.md).
+
 ```sh
 tm observe "Ivan said he works at Hyphae."        # lossless episode, returns id
 tm assert Ivan works_at Hyphae --entity --episode Episode/...
