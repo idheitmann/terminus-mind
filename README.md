@@ -67,7 +67,7 @@ one framework. Point hermes' MCP config at:
   "mcpServers": {
     "tm-mcp": {
       "command": "uv",
-      "args": ["run", "--project", "/path/to/terminus-mind", "tm-mcp"],
+      "args": ["run", "--no-active", "--project", "/path/to/terminus-mind", "tm-mcp"],
       "env": {
         "TM_AGENT": "hermes",
         "TM_JOURNAL": "/path/to/terminus-mind/journal"
@@ -79,6 +79,10 @@ one framework. Point hermes' MCP config at:
 
 `TM_AGENT` is the author recorded on every memory commit; `TM_DB` etc.
 override the connection (defaults match the local podman instance).
+`--no-active` stops uv warning about the calling agent's own `VIRTUAL_ENV`.
+Alternative with no uv in the path at all (faster spawn, but you own keeping
+the venv synced): use `/path/to/terminus-mind/.venv/bin/tm-mcp` as the
+command directly.
 
 **Fallback: direct import** (hermes runs Python) — same tools, in-process:
 
