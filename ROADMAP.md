@@ -130,6 +130,36 @@ Next: per-source evidence weighting (a claim confirmed by two different
 agents and the human is stronger than three confirmations from one agent),
 and speculative-learning branches per agent.
 
+## Before going public (Reddit / announcement gate)
+
+The core claim — beliefs proven and ontology kept clean *over weeks of real
+use* — is exactly what no test suite shows. The dogfooding period produces
+the artifact that makes the post: a commit log of a world model actually
+converging. Gates, in order:
+
+**Evidence gates (let these accumulate, ~2–3 weeks):**
+- [ ] Two or three full weekly cycles unattended: nightly sleep runs clean,
+      Monday triage reports stay sane, no babysitting.
+- [ ] The candidate:confirmed ratio visibly shifts (currently 21:1) —
+      promotions happening in the wild is the proof of life.
+- [ ] The first real contradiction fires in anger: a correction supersedes
+      cleanly, pins, and reads right in `tm history`.
+- [ ] Vocabulary reaches ~50+ predicates and stays convergent — junk terms
+      (`cannot`) get pruned/merged faster than they accumulate. This is the
+      make-or-break test of the conservative-ontology design.
+
+**Stranger-proofing work (do after the evidence gates, before posting):**
+- [ ] `tm load` — restore from a dump, plus one actual restore drill.
+      Posting with backups but no restore answer is embarrassing.
+- [ ] Parameterize the ops/ systemd units (no hardcoded /home/ivanh paths)
+      and a quickstart that doesn't assume this exact podman/llama.cpp
+      setup; document non-default credentials.
+- [ ] README: address "isn't TerminusDB unmaintained?" up front (plain
+      document data model, tm dump portability, versioning is the feature
+      being bought — the DESIGN.md argument, surfaced).
+- [ ] README leads with a real `tm log` excerpt showing the system
+      learning — the debut is the evidence, not the architecture.
+
 ## Non-goals (revisit only with evidence)
 
 Community detection / graph summarization (premature below ~10k entities),
