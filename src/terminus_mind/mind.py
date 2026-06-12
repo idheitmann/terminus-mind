@@ -553,6 +553,59 @@ class Mind:
             idx.upsert([i for i, _ in chunk], self.embedder.embed([t for _, t in chunk]))
         return {"available": True, "indexed": len(idx)}
 
+    def dump(self) -> list[dict]:
+        """Full export: every schema and instance document, portable JSONL
+        shape. The insurance policy — the world model is hostage to nothing."""
+        out = []
+        for d in self.client.list_docs(graph_type="schema"):
+            out.append({"graph": "schema", "doc": d})
+        for type_ in ("Episode", "Entity", "VocabTerm", "Claim"):
+            for d in self.client.list_docs(type_):
+                out.append({"graph": "instance", "doc": d})
+        return out
+
+    def doctor(self) -> dict:
+        """Which layer is broken? TerminusDB, database, schema, embeddings,
+        journal — each checked independently."""
+        from . import journal as journal_mod
+        from .schema import SCHEMA
+
+        checks: dict[str, dict] = {}
+        try:
+            self.client._request("GET", "/api/info")
+            checks["terminusdb"] = {"ok": True, "server": self.client.server}
+        except Exception as e:
+            checks["terminusdb"] = {"ok": False, "error": str(e)[:200]}
+            return {"ok": False, "checks": checks}
+        try:
+            exists = self.client.db_exists()
+            checks["database"] = {"ok": exists, "db": f"{self.client.team}/{self.client.db}"}
+            if exists:
+                have = {d["@id"] for d in self.client.list_docs(graph_type="schema")
+                        if d.get("@type") in ("Class", "Enum")}
+                want = {d["@id"] for d in SCHEMA}
+                checks["schema"] = {"ok": have >= want,
+                                    "missing": sorted(want - have)}
+        except Exception as e:
+            checks["database"] = {"ok": False, "error": str(e)[:200]}
+        emb_ok = self.embedder.available()
+        checks["embeddings"] = {
+            "ok": emb_ok, "url": self.embedder.url,
+            "indexed": len(self._vec_index()) if emb_ok else 0,
+            "note": None if emb_ok else "degraded to string matching (not fatal)",
+        }
+        try:
+            d = journal_mod.journal_dir()
+            d.mkdir(parents=True, exist_ok=True)
+            probe = d / ".doctor"
+            probe.write_text("ok")
+            probe.unlink()
+            checks["journal"] = {"ok": True, "dir": str(d)}
+        except Exception as e:
+            checks["journal"] = {"ok": False, "error": str(e)[:200]}
+        required = ("terminusdb", "database", "schema", "journal")
+        return {"ok": all(checks.get(k, {}).get("ok") for k in required), "checks": checks}
+
     # -- introspection -------------------------------------------------------
 
     def stats(self) -> dict:

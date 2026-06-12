@@ -46,6 +46,10 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("init", help="create database and schema")
     sub.add_parser("stats", help="memory overview")
+    sub.add_parser("doctor", help="health-check every layer")
+
+    sp = sub.add_parser("dump", help="export the full world model as JSONL")
+    sp.add_argument("-o", "--output", help="file path (default: stdout)")
 
     sp = sub.add_parser("observe", help="record an episode")
     sp.add_argument("content")
@@ -140,6 +144,15 @@ def _run(mind: Mind, args):  # noqa: C901
         return {"db": mind.client.db, "changed": changed}
     if args.cmd == "stats":
         return mind.stats()
+    if args.cmd == "doctor":
+        return mind.doctor()
+    if args.cmd == "dump":
+        lines = "\n".join(json.dumps(rec, default=str) for rec in mind.dump())
+        if args.output:
+            with open(args.output, "w") as f:
+                f.write(lines + "\n")
+            return {"written": args.output, "records": lines.count("\n") + 1}
+        return lines
     if args.cmd == "observe":
         return {"episode_id": mind.observe(args.content, source=args.source)}
     if args.cmd == "assert":

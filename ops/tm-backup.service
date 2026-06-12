@@ -1,0 +1,8 @@
+[Unit]
+Description=terminus-mind daily world-model dump
+After=terminusdb.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ivanh/dev/terminus-mind
+ExecStart=/bin/bash -c 'mkdir -p ~/.local/share/terminus-mind/backups && uv run --no-active tm dump -o ~/.local/share/terminus-mind/backups/mind-$(date +%%Y%%m%%d).jsonl && ls -t ~/.local/share/terminus-mind/backups/mind-*.jsonl | tail -n +15 | xargs -r rm'
