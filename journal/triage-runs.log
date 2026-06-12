@@ -1,0 +1,35 @@
+All four active entries are from agent `hermes`, logged this morning (2026-06-12). Here is the triage report.
+
+## Triage report — 2026-06-12 (headless, report-only)
+
+### Counts by kind and severity
+
+| Kind | Severity | Count |
+|---|---|---|
+| error | blocking | 2 |
+| resistance_misfire | minor | 2 |
+
+No `recall_miss`, `unclear_choice`, `slow`, or `other` entries.
+
+### Errors — reproducible? Suspected cause
+
+Both error entries (06:58:40 and 07:01:13) describe the same failure: `memory_about` returns a TerminusDB 500 InternalServerError when `about()` (around `journal.py`-adjacent code, reported as L395) runs a `query_template` on `Claim` filtered by `object_entity`. The second entry pins it down: on TerminusDB v12, template queries filtering on an **Optional** link property (`object_entity`) crash with a 500, while Required links work. This looks deterministically reproducible — same tool, same query shape, two independent occurrences — and the suspected root cause is the document-template query path not handling Optional link filters; the reporter's own suggested fix is to use a WOQL triple query instead.
+
+**Likely already fixed:** the most recent commit on main, `89548be` "Fix tm about 500: query incoming edges via WOQL", matches the suggested fix exactly. An interactive run should verify against a throwaway `tm_triage_*` database, confirm a regression test exists in `tests/test_journal.py` (currently modified in the working tree), and then archive these two entries.
+
+### Threshold-change proposals (aggregated evidence — human decision required)
+
+Two `resistance_misfire` entries (06:58:47 and 07:01:13) describe the same pattern: asserting with predicate `uses_tool` triggered resistance that suggested... `uses_tool` itself, at 0.75 similarity. The outcome was arguably correct, but a **self-referential match at only 0.75 similarity for an exact predicate match** is confusing — an identical predicate should score ~1.0, or be excluded from suggestions entirely.
+
+This is 2 similar entries, below the ≥3 threshold TRIAGE.md sets for a concrete proposal. Per the procedure, no threshold change is proposed. However, the evidence suggests the issue may not be the `SIMILARITY_GATE` value at all but two candidate non-threshold fixes worth flagging for human consideration if a third entry appears:
+
+1. **Suppress self-matches**: when the suggested predicate equals the asserted predicate, skip resistance (it conveys no information).
+2. **Normalize the similarity metric** in `scoring.py` so exact string matches score 1.0 rather than 0.75 — the current distance normalization appears miscalibrated.
+
+### Unclear-choice wording fixes
+
+None — no `unclear_choice` entries this period.
+
+### Actions
+
+None taken (headless mode: no edit/shell permissions). Nothing archived; all four entries remain active for the next interactive run, which should verify commit `89548be` resolves the two error entries and archive accordingly.

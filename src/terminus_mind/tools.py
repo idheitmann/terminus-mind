@@ -240,5 +240,13 @@ def dispatch(mind: Mind, name: str, arguments: dict | str) -> dict:
                     "conflicts": mind.conflicts()}
         raise KeyError(f"unknown tool {name}")
     except NoveltyResisted as e:
-        return {"resisted": True, "kind": e.kind, "name": e.name,
-                "suggestions": e.suggestions, "hint": str(e)}
+        return {
+            "resisted": True, "kind": e.kind, "name": e.name,
+            "suggestions": e.suggestions,
+            "hint": (
+                f"'{e.name}' is new, but similar existing terms are listed in "
+                "suggestions. This is the vocabulary working, not an error: if one "
+                "of them means the same thing, retry using its exact name; only if "
+                "yours is genuinely a different concept, retry with force=true."
+            ),
+        }

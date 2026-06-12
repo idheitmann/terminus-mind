@@ -23,6 +23,21 @@ def test_write_read_summarize(tmp_path, monkeypatch):
     assert json.loads(raw[0])["note"] == "missed stored fact about Ada"
 
 
+def test_archive_cycle(tmp_path, monkeypatch):
+    monkeypatch.setenv("TM_JOURNAL", str(tmp_path))
+    journal.write_entry("hermes", "error", "first")
+    journal.write_entry("other", "slow", "second")
+    assert journal.archive_entries() == 2
+    assert journal.read_entries() == []                       # active is empty
+    archived = journal.read_entries(include_archived=True)
+    assert {e["note"] for e in archived} == {"first", "second"}
+    # post-triage entries land in a fresh active file; archive appends safely
+    journal.write_entry("hermes", "error", "third")
+    assert [e["note"] for e in journal.read_entries()] == ["third"]
+    assert journal.archive_entries(agent="hermes") == 1
+    assert len(journal.read_entries(include_archived=True)) == 3
+
+
 def test_dispatch_journal_needs_no_db(tmp_path, monkeypatch):
     monkeypatch.setenv("TM_JOURNAL", str(tmp_path))
     # client is never touched: journaling must work even when the DB is down

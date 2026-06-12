@@ -106,6 +106,10 @@ def main(argv: list[str] | None = None) -> int:
     sp = sub.add_parser("journal", help="friction reports about the memory system itself")
     sp.add_argument("--agent", dest="journal_agent", help="filter to one agent's journal")
     sp.add_argument("--tail", type=int, help="show the last N raw entries instead of the summary")
+    sp.add_argument("--archive", action="store_true",
+                    help="move active entries to journal/archive/ (after triage)")
+    sp.add_argument("--include-archived", action="store_true",
+                    help="include already-triaged entries")
 
     sp = sub.add_parser("log", help="commit timeline (every memory change)")
     sp.add_argument("-n", type=int, default=20)
@@ -192,9 +196,12 @@ def _run(mind: Mind, args):  # noqa: C901
     if args.cmd == "merge-term":
         return {"claims_rewritten": mind.merge_term(args.kind, args.name, args.into)}
     if args.cmd == "journal":
-        from .journal import read_entries, summarize
+        from .journal import archive_entries, read_entries, summarize
 
-        entries = read_entries(agent=args.journal_agent)
+        if args.archive:
+            return {"archived": archive_entries(agent=args.journal_agent)}
+        entries = read_entries(agent=args.journal_agent,
+                               include_archived=args.include_archived)
         if args.tail:
             return entries[-args.tail:]
         return summarize(entries)

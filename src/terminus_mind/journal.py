@@ -64,11 +64,18 @@ def write_entry(
     return entry
 
 
-def read_entries(agent: str | None = None) -> list[dict]:
+def read_entries(agent: str | None = None, include_archived: bool = False) -> list[dict]:
     d = journal_dir()
     if not d.is_dir():
         return []
-    files = [d / f"{agent}.jsonl"] if agent else sorted(d.glob("*.jsonl"))
+    if agent:
+        files = [d / f"{agent}.jsonl"]
+        if include_archived:
+            files += sorted((d / "archive").glob(f"*-{agent}.jsonl"))
+    else:
+        files = sorted(d.glob("*.jsonl"))
+        if include_archived:
+            files += sorted((d / "archive").glob("*.jsonl"))
     entries = []
     for path in files:
         if not path.exists():
@@ -77,6 +84,33 @@ def read_entries(agent: str | None = None) -> list[dict]:
             if line.strip():
                 entries.append(json.loads(line))
     return sorted(entries, key=lambda e: e["ts"])
+
+
+def archive_entries(agent: str | None = None) -> int:
+    """Move triaged entries out of the active journal. Returns count moved.
+
+    Active files become journal/archive/<utc-date>-<agent>.jsonl (appended,
+    so multiple triages per day are safe). Nothing is ever deleted."""
+    d = journal_dir()
+    if not d.is_dir():
+        return 0
+    archive = d / "archive"
+    moved = 0
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    files = [d / f"{agent}.jsonl"] if agent else sorted(d.glob("*.jsonl"))
+    for path in files:
+        if not path.exists():
+            continue
+        content = path.read_text()
+        n = sum(1 for line in content.splitlines() if line.strip())
+        if not n:
+            continue
+        moved += n
+        archive.mkdir(parents=True, exist_ok=True)
+        with open(archive / f"{stamp}-{path.name}", "a") as f:
+            f.write(content)
+        path.unlink()
+    return moved
 
 
 def summarize(entries: list[dict]) -> dict:
