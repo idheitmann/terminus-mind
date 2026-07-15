@@ -194,6 +194,13 @@ TOOL_SPECS: list[dict] = [
 ]
 
 
+def _valid_episode(ep: str | None) -> str | None:
+    """Return episode only if it looks like a real DB ID; drop freeform strings."""
+    if ep and ep.startswith("Episode/"):
+        return ep
+    return None
+
+
 def dispatch(mind: Mind, name: str, arguments: dict | str) -> dict:
     """Execute a tool call against a Mind. Returns a JSON-serializable dict."""
     args: dict[str, Any] = json.loads(arguments) if isinstance(arguments, str) else dict(arguments)
@@ -207,23 +214,29 @@ def dispatch(mind: Mind, name: str, arguments: dict | str) -> dict:
                 include_expired=args.get("include_expired", False),
                 limit=args.get("limit", 10))}
         if name == "memory_assert":
+            obj = args.get("object")
+            if isinstance(obj, str):
+                obj = obj.removeprefix("Entity/")  # strip URI prefix if model included it
             return {"claim_id": mind.assert_claim(
                 args["subject"], args["predicate"],
-                object=args.get("object"), value=args.get("value"),
-                fact_text=args.get("fact_text"), episode=args.get("episode"),
+                object=obj, value=args.get("value"),
+                fact_text=args.get("fact_text"), episode=_valid_episode(args.get("episode")),
                 by_human=args.get("by_human", False), force=args.get("force", False))}
         if name == "memory_confirm":
-            c = mind.confirm(args["claim_id"], episode=args.get("episode"),
+            c = mind.confirm(args["claim_id"], episode=_valid_episode(args.get("episode")),
                              by_human=args.get("by_human", False))
             return {"claim_id": c["@id"], "confirms": c["confirms"]}
         if name == "memory_contradict":
-            c = mind.contradict(args["claim_id"], episode=args.get("episode"),
+            c = mind.contradict(args["claim_id"], episode=_valid_episode(args.get("episode")),
                                 by_human=args.get("by_human", False))
             return {"claim_id": c["@id"], "contradicts": c["contradicts"]}
         if name == "memory_supersede":
+            obj = args.get("object")
+            if isinstance(obj, str):
+                obj = obj.removeprefix("Entity/")
             return {"new_claim_id": mind.supersede(
-                args["old_claim_id"], object=args.get("object"), value=args.get("value"),
-                fact_text=args.get("fact_text"), episode=args.get("episode"),
+                args["old_claim_id"], object=obj, value=args.get("value"),
+                fact_text=args.get("fact_text"), episode=_valid_episode(args.get("episode")),
                 by_human=args.get("by_human", False), pin=args.get("pin", False))}
         if name == "memory_about":
             return mind.about(args["entity"])
@@ -244,9 +257,12 @@ def dispatch(mind: Mind, name: str, arguments: dict | str) -> dict:
             "resisted": True, "kind": e.kind, "name": e.name,
             "suggestions": e.suggestions,
             "hint": (
-                f"'{e.name}' is new, but similar existing terms are listed in "
-                "suggestions. This is the vocabulary working, not an error: if one "
-                "of them means the same thing, retry using its exact name; only if "
-                "yours is genuinely a different concept, retry with force=true."
+                f"'{e.name}' is new. Suggestions are STRING-SIMILAR existing terms — "
+                "similarity is purely textual, not semantic. Only reuse a suggestion "
+                "if it describes the SAME KIND OF RELATIONSHIP as your original "
+                "(e.g. 'employer_of' → 'works_at' is fine; 'verifies' for a family "
+                "relation is not). If none fit, retry with force=true and your "
+                "original predicate. Do NOT force-fit a suggestion just to avoid "
+                "the resistance — a wrong predicate corrupts the graph."
             ),
         }

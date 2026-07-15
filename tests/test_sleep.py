@@ -71,6 +71,23 @@ def test_sleep_reuses_vocabulary_under_resistance(mind):
     assert claim["predicate"] == "works_at"  # converged, not fragmented
 
 
+def test_sleep_reuses_entity_under_high_similarity(mind):
+    """Underscore/case variants of existing entities auto-remap rather than skip."""
+    # Establish "PKB vault" as an entity
+    setup = [{"subject": "Ivan", "predicate": "uses_tool", "object": "PKB vault",
+              "value": None, "fact_text": "Ivan uses PKB vault."}]
+    mind.observe("ep1")
+    run_sleep(mind, llm=FakeLLM([setup]))
+    # Now the model tries underscore variant — should remap, not skip
+    mind.observe("ep2")
+    drifted = [{"subject": "Ada", "predicate": "uses_tool", "object": "PKB_vault",
+                "value": None, "fact_text": "Ada uses PKB_vault."}]
+    report = run_sleep(mind, llm=FakeLLM([drifted]))
+    assert report["asserted"] == 1 and report["vocab_reused"] == 1
+    [claim] = mind.recall(subject="Ada", touch=False)
+    assert claim["object_entity"] == "Entity/PKB%20vault"  # canonical form used
+
+
 def test_sleep_review_mode_leaves_branch(mind):
     mind.observe("Ivan works at Hyphae.")
     report = run_sleep(mind, llm=FakeLLM([EXTRACTION]), merge=False)
@@ -123,6 +140,22 @@ def test_sibling_facts_do_not_cross_confirm(mind):
     claims = {c["fact_text"]: c for c in mind.recall(subject="Ivan", touch=False)}
     assert claims["Ivan uses tool ClickUp"]["confirms"] == 2
     assert claims["Ivan uses tool Everhour"]["confirms"] == 1
+
+
+def test_same_claim_confirmed_at_most_once_per_run(mind):
+    """One sleep run = one observation; N extractions of the same fact from N
+    overlapping episodes must not inflate confirms beyond 1."""
+    single = [EXTRACTION[0]]  # just works_at/Hyphae
+    mind.observe("ep1")
+    run_sleep(mind, llm=FakeLLM([single]))
+    # Two new episodes both mention the same fact (hermes context repetition)
+    mind.observe("ep2")
+    mind.observe("ep3")
+    report = run_sleep(mind, llm=FakeLLM([single, single]))
+    # Same fact extracted from 2 episodes in one run → only 1 confirm
+    assert report["confirmed"] == 1
+    [claim] = mind.recall(subject="Ivan", predicate="works_at", touch=False)
+    assert claim["confirms"] == 2  # run1 gave 1, run2 gives 1 more (not 2)
 
 
 def test_sleep_no_llm_still_consolidates(mind):

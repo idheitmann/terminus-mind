@@ -125,6 +125,10 @@ def run_sleep(
                    if t["status"] != "deprecated")
     entities = sorted(e["name"] for e in bmind.client.list_docs("Entity"))
 
+    # one confirm per claim per run — a night is one observation event regardless
+    # of how many overlapping episode segments mention the same fact
+    confirmed_this_run: set[str] = set()
+
     for ep in episodes:
         report["episodes"] += 1
         prompt = (
@@ -149,7 +153,7 @@ def run_sleep(
             if not _resolve_pronouns(cand, self_name, report):
                 continue
             try:
-                _adjudicate(bmind, cand, ep["@id"], report)
+                _adjudicate(bmind, cand, ep["@id"], report, confirmed_this_run)
             except Exception as e:  # one bad candidate never aborts the run
                 report["skipped"].append({"claim": cand.get("fact_text"),
                                           "reason": str(e)[:200]})
@@ -163,7 +167,8 @@ def run_sleep(
     return report
 
 
-def _adjudicate(bmind: Mind, cand: dict, episode_id: str, report: dict) -> None:
+def _adjudicate(bmind: Mind, cand: dict, episode_id: str, report: dict,
+                confirmed_this_run: set[str] | None = None) -> None:
     """Deterministic adjudication: confirm equivalents, assert novelty,
     let resistance arbitrate vocabulary."""
     from urllib.parse import unquote
@@ -186,7 +191,12 @@ def _adjudicate(bmind: Mind, cand: dict, episode_id: str, report: dict) -> None:
             same_object(hit)
             or _overlap(hit["fact_text"], cand.get("fact_text") or "") >= CONFIRM_OVERLAP
         ):
-            bmind.confirm(hit["@id"], episode=episode_id, by_human=False)
+            claim_id = hit["@id"]
+            if confirmed_this_run is not None and claim_id in confirmed_this_run:
+                return  # already confirmed once this run; one night = one observation
+            bmind.confirm(claim_id, episode=episode_id, by_human=False)
+            if confirmed_this_run is not None:
+                confirmed_this_run.add(claim_id)
             report["confirmed"] += 1
             return
     kwargs = dict(
@@ -208,8 +218,28 @@ def _adjudicate(bmind: Mind, cand: dict, episode_id: str, report: dict) -> None:
                 report["skipped"].append({"claim": cand.get("fact_text"), "reason": str(e2)[:200]})
                 journal.write_entry("sleep", "unclear_choice", f"entity resisted on retry: {e2}"[:300],
                                     tool="sleep.assert", severity="minor")
+        elif e.kind == "entity" and top["similarity"] >= REUSE_SIMILARITY:
+            # High-similarity entity (underscore/case variant, near-duplicate): swap
+            # the matching field and retry with the canonical existing name.
+            subj = cand["subject"]
+            new_kwargs = dict(kwargs)
+            if new_kwargs.get("object") == e.name:
+                new_kwargs["object"] = top["name"]
+            elif subj == e.name:
+                subj = top["name"]
+            else:
+                report["skipped"].append({"claim": cand.get("fact_text"), "reason": str(e)[:200]})
+                return
+            try:
+                bmind.assert_claim(subj, pred, **new_kwargs)
+                report["asserted"] += 1
+                report["vocab_reused"] += 1
+            except NoveltyResisted as e2:
+                report["skipped"].append({"claim": cand.get("fact_text"), "reason": str(e2)[:200]})
+                journal.write_entry("sleep", "unclear_choice", f"entity resisted on retry: {e2}"[:300],
+                                    tool="sleep.assert", severity="minor")
         elif e.kind == "entity":
-            # near-duplicate entity names need human/hermes judgment
+            # Similarity below threshold — needs human judgment
             report["skipped"].append({"claim": cand.get("fact_text"), "reason": str(e)[:200]})
             journal.write_entry("sleep", "unclear_choice", f"entity resisted: {e}"[:300],
                                 tool="sleep.assert", severity="minor")

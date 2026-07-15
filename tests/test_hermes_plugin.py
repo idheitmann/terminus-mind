@@ -59,7 +59,9 @@ def test_prompt_block_is_confirmed_only(provider):
     m.assert_claim("Ivan", "works_at", object="Hyphae",
                    fact_text="Ivan works at Hyphae.", by_human=True)
     provider._refresh_prompt_block()
-    assert provider.system_prompt_block() == ""  # candidate: stays out
+    # candidate claim stays out of world model; protocol instructions always present
+    assert "Ivan works at Hyphae." not in provider.system_prompt_block()
+    assert provider.system_prompt_block() != ""  # protocol is always injected
     [c] = m.recall(subject="Ivan", touch=False)
     m.confirm(c["@id"], by_human=True)
     m.consolidate()
@@ -72,6 +74,31 @@ def test_prefetch_labels_candidates(provider):
                                 fact_text="Ivan lives in Oakland.", by_human=True)
     out = provider.prefetch("where does Ivan live", session_id="sess-1")
     assert "Ivan lives in Oakland." in out and "candidate" in out
+
+
+def test_prefetch_surfaces_confirmation_queue(provider):
+    m = provider._mind
+    m.assert_claim("Ivan", "works_at", object="Hyphae",
+                   fact_text="Ivan works at Hyphae.", by_human=True)
+    # candidate in topical hit → surfaced in confirmation queue
+    out = provider.prefetch("where does Ivan work", session_id="sess-1")
+    assert "Confirmation queue" in out and "Ivan works at Hyphae." in out
+
+    # after confirmation + consolidation, confirmed claim no longer in queue
+    [c] = m.recall(subject="Ivan", touch=False)
+    m.confirm(c["@id"], by_human=True)
+    m.consolidate()
+    out2 = provider.prefetch("where does Ivan work", session_id="sess-1")
+    assert "Confirmation queue" not in out2
+
+
+def test_prefetch_no_queue_when_off_topic(provider):
+    m = provider._mind
+    m.assert_claim("Ivan", "works_at", object="Hyphae",
+                   fact_text="Ivan works at Hyphae.", by_human=True)
+    # unrelated query → candidate doesn't surface
+    out = provider.prefetch("what is the weather like", session_id="sess-1")
+    assert "Confirmation queue" not in out
 
 
 def test_tools_no_observe_and_dispatch(provider):

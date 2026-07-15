@@ -1,0 +1,766 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>terminus-mind Graph Viewer</title>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape@3.31.2/dist/cytoscape.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+<style>
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --border: #334155;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --accent: #38bdf8;
+    --estab: #22c55e;
+    --prov: #eab308;
+    --retired-bg: #64748b;
+    --cand: #94a3b8;
+    --episode: #8b5cf6;
+    --vocab: #06b6d4;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+
+  /* Header */
+  .header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  .header h1 { font-size: 14px; font-weight: 600; color: var(--accent); white-space: nowrap; }
+  .header .sep { color: var(--border); font-size: 16px; }
+  .header label { font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 4px; }
+  .header input { background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 3px 8px; border-radius: 4px; font-size: 12px; width: 160px; }
+  .header input:focus { outline: none; border-color: var(--accent); }
+  .header button {
+    background: var(--accent); color: #0f172a; border: none; padding: 4px 12px; border-radius: 4px;
+    font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .header button:hover { filter: brightness(1.2); }
+  .header select {
+    background: var(--bg); color: var(--text); border: 1px solid var(--border); padding: 3px 8px;
+    border-radius: 4px; font-size: 12px; cursor: pointer;
+  }
+  .header select:focus { outline: none; border-color: var(--accent); }
+  .header .status { font-size: 11px; color: var(--text-dim); margin-left: auto; white-space: nowrap; }
+
+  /* Main area: graph + sidebar */
+  .main { display: flex; flex: 1; min-height: 0; }
+  #cy {
+    flex: 1; background: var(--bg);
+    cursor: grab;
+  }
+  #cy:active { cursor: grabbing; }
+
+  /* Info sidebar */
+  #info {
+    width: 340px; background: var(--surface); border-left: 1px solid var(--border);
+    padding: 12px; overflow-y: auto; font-size: 13px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  #info .empty { color: var(--text-dim); font-size: 12px; text-align: center; margin-top: 40px; }
+  #info h2 { font-size: 14px; font-weight: 600; color: var(--accent); }
+  #info .field { display: flex; gap: 6px; align-items: baseline; }
+  #info .field .label { color: var(--text-dim); font-size: 11px; font-weight: 600; min-width: 70px; }
+  #info .field .value { color: var(--text); word-break: break-all; }
+  #info .type-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 600;
+    color: #0f172a;
+  }
+  .badge-established { background: #22c55e; }
+  .badge-provisional { background: #eab308; }
+  .badge-candidate   { background: #94a3b8; }
+  .badge-retired     { background: #64748b; }
+  .badge-vocab       { background: #06b6d4; }
+  .badge-entity      { background: #38bdf8; }
+
+  #info .claims-list { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+  #info .claims-list .claim-row {
+    background: var(--bg); padding: 4px 8px; border-radius: 4px; font-size: 12px;
+    border-left: 3px solid var(--border); cursor: pointer;
+  }
+  #info .claims-list .claim-row:hover { border-left-color: var(--accent); }
+  #info .claims-list .claim-row .pred { color: var(--accent); font-weight: 600; }
+  #info .claims-list .claim-row .obj-name { color: var(--text); }
+  #info .claims-list .claim-row .val { color: var(--text-dim); font-style: italic; }
+  #info .claims-list .claim-row .tgt { display: inline-block; padding: 0 4px; border-radius: 2px; font-size: 10px; margin-left: 4px; }
+  .tgt-confirmed { background: #166534; color: #bbf7d0; }
+  .tgt-candidate { background: #713f12; color: #fef08a; }
+  .tgt-retired   { background: #475569; color: #cbd5e1; }
+
+  /* Legend */
+  #legend {
+    position: absolute; bottom: 12px; left: 12px; z-index: 10;
+    background: rgba(30, 41, 59, 0.92); border: 1px solid var(--border); border-radius: 6px;
+    padding: 8px 12px; font-size: 11px; display: flex; flex-direction: column; gap: 3px;
+    backdrop-filter: blur(4px);
+  }
+  #legend .row { display: flex; align-items: center; gap: 6px; }
+  #legend .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  #legend .dot.diamond { border-radius: 2px; transform: rotate(45deg); }
+  #legend .line { width: 18px; height: 0; border-top: 2px solid; flex-shrink: 0; }
+
+  /* Filter toggles */
+  .toggles { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .toggles label { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--text-dim); cursor: pointer; }
+  .toggles input[type="checkbox"] { accent-color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>⏣ terminus-mind</h1>
+  <span class="sep">|</span>
+  <label>DB <input id="dbInput" value="admin/mind" /></label>
+  <label>Pass <input id="passInput" type="password" value="root" /></label>
+  <button id="loadBtn">⟳ Load</button>
+  <label>Layout <select id="layoutSelect">
+    <option value="dagre" selected>dagre (hierarchical)</option>
+    <option value="cose">cose (force-directed)</option>
+    <option value="breadthfirst">breadthfirst (tree)</option>
+    <option value="circle">circle</option>
+    <option value="concentric">concentric</option>
+    <option value="grid">grid</option>
+  </select></label>
+  <span class="status" id="status">ready</span>
+  <div class="toggles" style="margin-left:auto">
+    <label><input type="checkbox" id="showVocab" checked /> VocabTerms</label>
+    <label><input type="checkbox" id="showEpisodes" /> Episodes</label>
+    <label><input type="checkbox" id="showRetired" /> Retired</label>
+    <label><input type="checkbox" id="showLabels" checked /> Labels</label>
+  </div>
+</div>
+
+<div class="main">
+  <div id="cy"></div>
+  <div id="info">
+    <div class="empty">Click a node or edge to inspect</div>
+  </div>
+</div>
+
+<div id="legend">
+  <div class="row"><span class="dot" style="background:#22c55e"></span> established entity</div>
+  <div class="row"><span class="dot" style="background:#eab308"></span> provisional entity</div>
+  <div class="row"><span class="dot" style="background:#94a3b8"></span> candidate entity</div>
+  <div class="row"><span class="dot diamond" style="background:#06b6d4"></span> VocabTerm</div>
+  <div class="row"><span class="dot" style="background:#8b5cf6"></span> Episode</div>
+  <div class="row"><span class="line" style="border-color:#64748b"></span> claim (predicate)</div>
+</div>
+
+<script>
+const CY = document.getElementById('cy');
+const INFO = document.getElementById('info');
+const STATUS = document.getElementById('status');
+const DB_INPUT = document.getElementById('dbInput');
+const PASS_INPUT = document.getElementById('passInput');
+const LOAD_BTN = document.getElementById('loadBtn');
+const SHOW_VOCAB = document.getElementById('showVocab');
+const SHOW_EPISODES = document.getElementById('showEpisodes');
+const SHOW_RETIRED = document.getElementById('showRetired');
+const SHOW_LABELS = document.getElementById('showLabels');
+const LAYOUT_SELECT = document.getElementById('layoutSelect');
+
+let cy = null;
+let allElements = { nodes: [], edges: [] };
+let allDocs = [];
+
+const AUTH = (p) => 'Basic ' + window.btoa('admin:' + p);
+
+function getLayoutConfig(name) {
+  const common = {
+    animate: true,
+    animationDuration: 500,
+    fit: true,
+    padding: 50,
+    nodeDimensionsIncludeLabels: true,
+    avoidOverlap: true,
+    avoidOverlapPadding: 45
+  };
+  switch (name) {
+    case 'cose':
+      return {
+        ...common,
+        name: 'cose',
+        animate: false,
+        nodeRepulsion: () => 180000,
+        idealEdgeLength: () => 200,
+        edgeElasticity: () => 0.45,
+        nestingFactor: 0.1,
+        gravity: 0.1,
+        numIter: 1500,
+        tile: true,
+        componentSpacing: 140,
+        coolingFactor: 0.85
+      };
+    case 'dagre':
+      return {
+        ...common,
+        name: 'dagre',
+        rankDir: 'TB',
+        spacingFactor: 1.5,
+        nodeSep: 100,
+        rankSep: 140
+      };
+    case 'breadthfirst':
+      return {
+        ...common,
+        name: 'breadthfirst',
+        directed: true,
+        spacingFactor: 1.8
+      };
+    case 'circle':
+      return {
+        ...common,
+        name: 'circle',
+        spacingFactor: 1.8
+      };
+    case 'concentric':
+      return {
+        ...common,
+        name: 'concentric',
+        concentric: node => node.degree(),
+        levelWidth: () => 2,
+        minNodeSpacing: 100,
+        spacingFactor: 1.6
+      };
+    case 'grid':
+      return {
+        ...common,
+        name: 'grid',
+        rows: undefined,
+        spacingFactor: 1.5
+      };
+    default:
+      return {
+        ...common,
+        name
+      };
+  }
+}
+
+async function fetchDB(db, pass) {
+  const url = `http://localhost:6363/api/document/${db}?as_list=true`;
+  const resp = await fetch(url, {
+    headers: { 'Authorization': AUTH(pass) }
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+  const text = await resp.text();
+  // The response might be a single JSON object with error info wrapped oddly
+  // It starts with [ for a list, but might have extra info lines before
+  const jsonStart = text.indexOf('[');
+  if (jsonStart < 0) throw new Error('Response is not a JSON array');
+  return JSON.parse(text.slice(jsonStart));
+}
+
+function parseDocs(docs, showVocab, showEpisodes, showRetired) {
+  const nodes = [];
+  const edges = [];
+  const entities = {};    // id -> doc
+  const entityMap = {};   // name or id -> canonical entity id
+
+  // Pass 1: collect entities and build name→id map
+  for (const doc of docs) {
+    if (doc['@type'] === 'Entity') {
+      entities[doc['@id']] = doc;
+      entityMap[doc['@id']] = doc['@id'];
+      // Also map by decoded name
+      const name = doc.name || doc['@id'].split('/').pop();
+      entityMap[name.toLowerCase()] = doc['@id'];
+    }
+  }
+
+  // Pass 2: create nodes
+  for (const doc of docs) {
+    const id = doc['@id'];
+    const type = doc['@type'];
+    const status = doc.status || 'candidate';
+
+    if (type === 'Entity') {
+      if (status === 'retired' && !showRetired) continue;
+      const statusClass = status === 'established' ? 'estab' :
+                          status === 'provisional' ? 'prov' :
+                          status === 'retired' ? 'retired' : 'cand';
+      nodes.push({
+        data: {
+          id: id,
+          label: doc.name || id.split('/').pop().replace(/%20/g, ' '),
+          type: 'entity',
+          status: status,
+          doc: doc
+        },
+        classes: `entity-${statusClass}`
+      });
+    } else if (type === 'VocabTerm') {
+      if (!showVocab) continue;
+      nodes.push({
+        data: {
+          id: id,
+          label: doc.name || id.split('/').pop().replace(/%20/g, ' '),
+          type: 'vocab',
+          kind: doc.kind || 'unknown',
+          doc: doc
+        },
+        classes: 'vocab'
+      });
+    } else if (type === 'Episode') {
+      if (!showEpisodes) continue;
+      nodes.push({
+        data: {
+          id: id,
+          label: (doc.content || '').substring(0, 60) + '…',
+          type: 'episode',
+          doc: doc
+        },
+        classes: 'episode'
+      });
+    } else if (type === 'Claim') {
+      // Claims become edges
+      if (status === 'retired' && !showRetired) continue;
+      const subjId = doc.subject;
+      const objId = doc.object_entity;
+      const objVal = doc.object_value;
+      if (!subjId) continue;
+
+      if (objId) {
+        // Entity-to-entity claim → edge
+        edges.push({
+          data: {
+            id: id,
+            source: subjId,
+            target: objId,
+            label: doc.predicate || '',
+            type: 'claim',
+            status: status,
+            fact_text: doc.fact_text || '',
+            doc: doc
+          },
+          classes: `claim-${status}`
+        });
+      }
+      // Literal claims (object_value) are shown in the info panel, not as edges
+    }
+  }
+
+  return { nodes, edges };
+}
+
+function render(elements) {
+  if (cy) cy.destroy();
+
+  // Register dagre layout manually if loaded via CDN
+  if (typeof window.cytoscapeDagre !== 'undefined') {
+    cytoscape.use(window.cytoscapeDagre);
+  }
+
+  const layoutName = LAYOUT_SELECT.value;
+  const layout = getLayoutConfig(layoutName);
+
+  cy = cytoscape({
+    container: CY,
+    elements: elements,
+    style: [
+      // Base styles for all nodes
+      {
+        selector: 'node',
+        style: {
+          'shape': 'round-rectangle',
+          'width': 'label',
+          'height': 'label',
+          'padding': '10px 16px',
+          'text-valign': 'center',
+          'text-halign': 'center',
+          'font-family': "Inter, system-ui, -apple-system, sans-serif",
+          'font-size': '11px',
+          'text-wrap': 'wrap',
+          'text-max-width': '200px'
+        }
+      },
+      // Entity nodes
+      {
+        selector: 'node.entity-estab',
+        style: {
+          'background-color': '#064e3b',
+          'label': 'data(label)',
+          'color': '#ecfdf5',
+          'border-color': '#10b981',
+          'border-width': 2,
+          'font-weight': 'bold'
+        }
+      },
+      {
+        selector: 'node.entity-prov',
+        style: {
+          'background-color': '#451a03',
+          'label': 'data(label)',
+          'color': '#fffbeb',
+          'border-color': '#f59e0b',
+          'border-width': 2,
+          'font-weight': 'bold'
+        }
+      },
+      {
+        selector: 'node.entity-cand',
+        style: {
+          'background-color': '#1e293b',
+          'label': 'data(label)',
+          'color': '#f1f5f9',
+          'border-color': '#64748b',
+          'border-width': 2,
+          'font-weight': 'bold'
+        }
+      },
+      {
+        selector: 'node.entity-retired',
+        style: {
+          'background-color': '#0f172a',
+          'label': 'data(label)',
+          'color': '#475569',
+          'border-color': '#334155',
+          'border-width': 1.5,
+          'opacity': 0.6
+        }
+      },
+      // VocabTerm nodes
+      {
+        selector: 'node.vocab',
+        style: {
+          'background-color': '#083344',
+          'label': 'data(label)',
+          'color': '#ecfeff',
+          'border-color': '#06b6d4',
+          'border-width': 2,
+          'font-size': '10px',
+          'font-weight': 'bold'
+        }
+      },
+      // Episode nodes
+      {
+        selector: 'node.episode',
+        style: {
+          'background-color': '#2e1065',
+          'label': 'data(label)',
+          'color': '#f5f3ff',
+          'border-color': '#8b5cf6',
+          'border-width': 2,
+          'font-size': '10px',
+          'opacity': 0.8
+        }
+      },
+      // Edges
+      {
+        selector: 'edge',
+        style: {
+          'width': 1.5,
+          'line-color': '#475569',
+          'target-arrow-color': '#475569',
+          'target-arrow-shape': 'triangle',
+          'curve-style': 'bezier',
+          'arrow-scale': 0.85,
+          'label': 'data(label)',
+          'font-size': '9px',
+          'font-weight': 'bold',
+          'color': '#94a3b8',
+          'text-background-color': '#0f172a',
+          'text-background-opacity': 1.0,
+          'text-background-padding': '3px 6px',
+          'text-background-shape': 'roundrectangle',
+          'text-rotation': 'autorotate',
+          'text-margin-x': '4px',
+          'text-margin-y': '-4px'
+        }
+      },
+      {
+        selector: 'edge.claim-retired',
+        style: {
+          'line-color': '#334155',
+          'target-arrow-color': '#334155',
+          'opacity': 0.4,
+          'line-style': 'dashed'
+        }
+      },
+      {
+        selector: 'edge.claim-candidate',
+        style: {
+          'line-color': '#64748b',
+          'target-arrow-color': '#64748b',
+          'opacity': 0.75,
+          'line-style': 'dotted'
+        }
+      },
+      {
+        selector: 'edge.claim-confirmed',
+        style: {
+          'line-color': '#10b981',
+          'target-arrow-color': '#10b981',
+          'width': 2.0
+        }
+      },
+      // Hover/Selection effects
+      {
+        selector: 'node:selected',
+        style: {
+          'border-width': 3,
+          'border-color': '#38bdf8'
+        }
+      },
+      {
+        selector: 'edge:selected',
+        style: {
+          'width': 3.5,
+          'line-color': '#38bdf8',
+          'target-arrow-color': '#38bdf8'
+        }
+      }
+    ],
+    layout: { name: 'grid', animate: false }
+  });
+
+  // Apply layout
+  const ly = cy.layout(layout);
+  ly.run();
+
+  // Apply label visibility
+  updateLabels();
+
+  // Event handlers
+  cy.on('tap', 'node', function(evt) {
+    const node = evt.target;
+    showNodeInfo(node.data('doc'), node.data('type'), node.data('status'), node.data('kind'));
+  });
+
+  cy.on('tap', 'edge', function(evt) {
+    const edge = evt.target;
+    showEdgeInfo(edge.data('doc'));
+  });
+
+  cy.on('tap', function(evt) {
+    if (evt.target === cy) {
+      showEmpty();
+    }
+  });
+}
+
+function updateLabels() {
+  if (!cy) return;
+  const show = SHOW_LABELS.checked;
+  cy.nodes().forEach(n => {
+    if (n.hasClass('episode')) {
+      n.style('label', show ? n.data('label') : '');
+    } else {
+      n.style('label', n.data('label'));
+    }
+  });
+  cy.edges().forEach(e => {
+    e.style('label', show ? e.data('label') : '');
+  });
+}
+
+function showNodeInfo(doc, type, status, kind) {
+  if (!doc) return;
+
+  if (type === 'entity') {
+    const name = doc.name || doc['@id'].split('/').pop().replace(/%20/g, ' ');
+    const statusClass = status === 'established' ? 'established' :
+                        status === 'provisional' ? 'provisional' : 'candidate';
+    // Find all claims involving this entity
+    const incoming = [];
+    const outgoing = [];
+    for (const d of allDocs) {
+      if (d['@type'] !== 'Claim') continue;
+      if (d.status === 'retired') continue;
+      if (d.subject === doc['@id']) {
+        outgoing.push(d);
+      }
+      if (d.object_entity === doc['@id']) {
+        incoming.push(d);
+      }
+    }
+
+    let html = `<h2>${escapeHtml(name)}</h2>`;
+    html += `<div class="field"><span class="label">ID</span><span class="value">${escapeHtml(doc['@id'])}</span></div>`;
+    html += `<div class="field"><span class="label">Type</span><span class="value"><span class="type-badge badge-${statusClass}">${statusClass}</span></span></div>`;
+    html += `<div class="field"><span class="label">Created</span><span class="value">${doc.created_at ? new Date(doc.created_at).toLocaleDateString() : '—'}</span></div>`;
+
+    if (incoming.length > 0) {
+      html += `<div style="margin-top:8px"><strong>Incoming claims</strong> (${incoming.length})</div><div class="claims-list">`;
+      for (const c of incoming) {
+        const pred = c.predicate || '—';
+        const subjName = subjLabel(c.subject);
+        html += `<div class="claim-row" onclick="navigateTo('${c.subject}')">`;
+        html += `<span class="pred">${escapeHtml(pred)}</span> ← <span class="obj-name">${escapeHtml(subjName)}</span>`;
+        html += ` <span class="tgt tgt-${c.status}">${c.status}</span>`;
+        html += `</div>`;
+      }
+      html += `</div>`;
+    }
+
+    if (outgoing.length > 0) {
+      html += `<div style="margin-top:8px"><strong>Outgoing claims</strong> (${outgoing.length})</div><div class="claims-list">`;
+      for (const c of outgoing) {
+        const pred = c.predicate || '—';
+        const objName = c.object_entity ? objLabel(c.object_entity) : (c.object_value ? `"${escapeHtml(c.object_value)}"` : '—');
+        html += `<div class="claim-row" onclick="${c.object_entity ? `navigateTo('${c.object_entity}')` : ''}">`;
+        html += `<span class="pred">${escapeHtml(pred)}</span> → <span class="obj-name">${escapeHtml(objName)}</span>`;
+        html += ` <span class="tgt tgt-${c.status}">${c.status}</span>`;
+        if (c.fact_text) html += `<div style="font-size:11px;color:var(--text-dim);margin-top:2px">${escapeHtml(c.fact_text)}</div>`;
+        html += `</div>`;
+      }
+      html += `</div>`;
+    }
+
+    INFO.innerHTML = html;
+
+  } else if (type === 'vocab') {
+    const name = doc.name || doc['@id'].split('/').pop();
+    html = `<h2>⌘ ${escapeHtml(name)}</h2>`;
+    html += `<div class="field"><span class="label">Kind</span><span class="value">${escapeHtml(doc.kind || '—')}</span></div>`;
+    html += `<div class="field"><span class="label">Status</span><span class="value">${escapeHtml(doc.status || '—')}</span></div>`;
+    html += `<div class="field"><span class="label">Ratified</span><span class="value">${doc.ratified ? '✓' : '✗'}</span></div>`;
+    html += `<div class="field"><span class="label">Usage</span><span class="value">${doc.usage_count || 0}×</span></div>`;
+    html += `<div class="field"><span class="label">First seen</span><span class="value">${doc.first_seen ? new Date(doc.first_seen).toLocaleDateString() : '—'}</span></div>`;
+    INFO.innerHTML = html;
+
+  } else if (type === 'episode') {
+    html = `<h2>📝 Episode</h2>`;
+    html += `<div class="field"><span class="label">Source</span><span class="value">${escapeHtml(doc.source || '—')}</span></div>`;
+    html += `<div class="field"><span class="label">Date</span><span class="value">${doc.occurred_at ? new Date(doc.occurred_at).toLocaleString() : '—'}</span></div>`;
+    html += `<div class="field"><span class="label">Consolidated</span><span class="value">${doc.consolidated ? '✓' : '✗'}</span></div>`;
+    html += `<div style="margin-top:8px"><strong>Content</strong></div>`;
+    html += `<div style="font-size:12px;color:var(--text-dim);line-height:1.5;margin-top:4px;white-space:pre-wrap">${escapeHtml(doc.content || '')}</div>`;
+    if (doc.session) html += `<div style="margin-top:8px" class="field"><span class="label">Session</span><span class="value">${escapeHtml(doc.session)}</span></div>`;
+    INFO.innerHTML = html;
+  }
+}
+
+function showEdgeInfo(doc) {
+  if (!doc) return;
+  const pred = doc.predicate || '—';
+  const subjName = subjLabel(doc.subject);
+  const objName = doc.object_entity ? objLabel(doc.object_entity) : (doc.object_value ? `"${escapeHtml(doc.object_value)}"` : '—');
+
+  let html = `<h2>🔗 ${escapeHtml(pred)}</h2>`;
+  html += `<div class="field"><span class="label">Subject</span><span class="value"><a href="#" onclick="navigateTo('${doc.subject}');return false">${escapeHtml(subjName)}</a></span></div>`;
+  if (doc.object_entity) {
+    html += `<div class="field"><span class="label">Object</span><span class="value"><a href="#" onclick="navigateTo('${doc.object_entity}');return false">${escapeHtml(objName)}</a></span></div>`;
+  } else {
+    html += `<div class="field"><span class="label">Value</span><span class="value">${escapeHtml(objName)}</span></div>`;
+  }
+  html += `<div class="field"><span class="label">Status</span><span class="value"><span class="type-badge badge-${doc.status}">${doc.status}</span></span></div>`;
+  html += `<div class="field"><span class="label">Confirms</span><span class="value">${doc.confirms || 0}</span></div>`;
+  html += `<div class="field"><span class="label">Evidence</span><span class="value">${doc.evidence ? doc.evidence.length : 0} episodes</span></div>`;
+  if (doc.fact_text) {
+    html += `<div style="margin-top:8px"><strong>Statement</strong></div>`;
+    html += `<div style="font-size:13px;color:var(--text);line-height:1.5;margin-top:4px;font-style:italic">${escapeHtml(doc.fact_text)}</div>`;
+  }
+  INFO.innerHTML = html;
+}
+
+function subjLabel(subjId) {
+  if (!subjId) return '—';
+  // Try to find the entity
+  for (const d of allDocs) {
+    if (d['@id'] === subjId && d['@type'] === 'Entity') {
+      return d.name || subjId.split('/').pop().replace(/%20/g, ' ');
+    }
+  }
+  return subjId.split('/').pop().replace(/%20/g, ' ');
+}
+
+function objLabel(objId) {
+  return subjLabel(objId);
+}
+
+function navigateTo(id) {
+  if (!cy) return;
+  const node = cy.getElementById(id);
+  if (node.length) {
+    cy.animate({
+      center: { eles: node },
+      zoom: 2,
+      duration: 300
+    });
+    node.emit('tap');
+  }
+}
+
+function showEmpty() {
+  INFO.innerHTML = `<div class="empty">Click a node or edge to inspect</div>`;
+}
+
+function escapeHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function load() {
+  const db = DB_INPUT.value.trim();
+  const pass = PASS_INPUT.value.trim();
+  if (!db) { STATUS.textContent = 'no DB'; return; }
+
+  STATUS.textContent = 'loading…';
+  LOAD_BTN.disabled = true;
+
+  try {
+    const docs = await fetchDB(db, pass);
+    allDocs = docs;
+
+    const showVocab = SHOW_VOCAB.checked;
+    const showEpisodes = SHOW_EPISODES.checked;
+    const showRetired = SHOW_RETIRED.checked;
+
+    const { nodes, edges } = parseDocs(docs, showVocab, showEpisodes, showRetired);
+    allElements = { nodes, edges };
+
+    render({ nodes, edges });
+
+    const entityCount = docs.filter(d => d['@type'] === 'Entity').length;
+    const claimCount = docs.filter(d => d['@type'] === 'Claim').length;
+    STATUS.textContent = `layout: ${LAYOUT_SELECT.value} · ${nodes.length} nodes · ${edges.length} edges · ${entityCount} entities, ${claimCount} claims`;
+  } catch (err) {
+    STATUS.textContent = `error: ${err.message}`;
+    console.error(err);
+  } finally {
+    LOAD_BTN.disabled = false;
+  }
+}
+
+// Toggle handlers
+function onToggle() {
+  if (allDocs.length === 0) return;
+  const showVocab = SHOW_VOCAB.checked;
+  const showEpisodes = SHOW_EPISODES.checked;
+  const showRetired = SHOW_RETIRED.checked;
+  const { nodes, edges } = parseDocs(allDocs, showVocab, showEpisodes, showRetired);
+  allElements = { nodes, edges };
+  render({ nodes, edges });
+  const displayType = showVocab || showEpisodes ? '' : ' (entities only)';
+  STATUS.textContent = `${nodes.length} nodes · ${edges.length} edges${displayType}`;
+}
+
+SHOW_VOCAB.addEventListener('change', onToggle);
+SHOW_EPISODES.addEventListener('change', onToggle);
+SHOW_RETIRED.addEventListener('change', onToggle);
+SHOW_LABELS.addEventListener('change', updateLabels);
+LOAD_BTN.addEventListener('click', load);
+
+// Layout change: re-layout in place without re-fetching data
+LAYOUT_SELECT.addEventListener('change', function() {
+  if (!cy) return;
+  const cfg = getLayoutConfig(this.value);
+  cy.layout(cfg).run();
+  STATUS.textContent = `layout: ${this.value} · ${STATUS.textContent.replace(/^layout: \w+ · /, '')}`;
+});
+
+// Load on page load
+load();
+</script>
+</body>
+</html>

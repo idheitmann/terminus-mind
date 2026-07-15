@@ -36,6 +36,174 @@ def _claim_line(c: dict) -> str:
     )
 
 
+def _getkey() -> str:
+    """Read one keypress without requiring Enter. Falls back to input() if not a TTY."""
+    if not sys.stdin.isatty():
+        return input().strip()[:1].lower()
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        return sys.stdin.read(1).lower()
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+
+def _spo(c: dict) -> str:
+    """Compact subject → predicate → object/value triple for a claim."""
+    from urllib.parse import unquote
+    subj = unquote((c.get("subject") or "").removeprefix("Entity/"))
+    pred = c.get("predicate", "?")
+    if c.get("object_entity"):
+        obj = unquote(c["object_entity"].removeprefix("Entity/"))
+    elif c.get("object_value") is not None:
+        obj = f'"{c["object_value"]}"'
+    else:
+        obj = "?"
+    return f"{subj}  {pred}  {obj}"
+
+
+def _print_claim(c: dict, detailed: bool = False) -> None:
+    cid = c.get("@id", "")
+    fact = c.get("fact_text", "")
+    if detailed:
+        print(f"         \033[2m{_spo(c)}\033[0m")
+        print(f"         {fact}")
+        print(f"         \033[2m{cid}  c={c.get('confirms',0)} hc={c.get('human_confirms',0)}\033[0m")
+    else:
+        print(f"         {fact[:52]:<52}  \033[2m{cid}\033[0m")
+
+
+def _fetch_examples(mind: Mind, tkind: str, name: str, limit: int) -> list[dict]:
+    try:
+        if tkind == "predicate":
+            return mind.recall(predicate=name, touch=False, limit=limit)
+        else:
+            by_subj = mind.recall(subject=name, touch=False, limit=limit // 2)
+            by_query = mind.recall(query=name, touch=False, limit=limit // 2)
+            seen, out = set(), []
+            for c in by_subj + by_query:
+                if c["@id"] not in seen:
+                    seen.add(c["@id"])
+                    out.append(c)
+            return out[:limit]
+    except Exception:
+        return []
+
+
+def _curate(mind: Mind, kind: str | None = None, min_uses: int = 1) -> None:
+    """Interactive one-key vocab curation session."""
+    terms = [
+        t for t in mind.vocab(kind=kind, status="provisional")
+        if t.get("usage_count", 0) >= min_uses
+    ]
+    terms.sort(key=lambda t: (-t.get("usage_count", 0), t["kind"], t["name"]))
+
+    if not terms:
+        print("Nothing to curate — no provisional terms meet the threshold.")
+        return
+
+    ratified = merged = renamed = skipped = 0
+    total = len(terms)
+
+    print(f"\n{'─'*60}")
+    print(f"  vocab curation  ({total} provisional terms)")
+    print(f"  y=ratify  r=rename  m=merge  d=details  s=skip  q=quit")
+    print(f"{'─'*60}\n")
+
+    quit_requested = False
+    for i, t in enumerate(terms, 1):
+        if quit_requested:
+            break
+        name, tkind, uses = t["name"], t["kind"], t.get("usage_count", 0)
+        examples = _fetch_examples(mind, tkind, name, limit=3)
+
+        print(f"[{i}/{total}]  {tkind}  \033[1m{name}\033[0m  (×{uses} uses)")
+        for ex in examples:
+            _print_claim(ex, detailed=False)
+
+        print("  y / r / m / d / s / q  > ", end="", flush=True)
+        key = _getkey()
+        print(key)
+
+        if key == "d":
+            # expand: fetch more claims, show SPO + sentence + episode snippet
+            examples = _fetch_examples(mind, tkind, name, limit=8)
+            for ex in examples:
+                for ep_id in (ex.get("evidence") or [])[:1]:
+                    try:
+                        ep = mind.client.get(ep_id)
+                        snippet = ep.get("content", "")[:110].replace("\n", " ")
+                        src = ep.get("source", "")
+                        ex["_ep_snippet"] = f"[{src}] {snippet}…"
+                    except Exception:
+                        pass
+            print()
+            print(f"[{i}/{total}]  {tkind}  \033[1m{name}\033[0m  (×{uses} uses)  — details")
+            for ex in examples:
+                _print_claim(ex, detailed=True)
+                if ex.get("_ep_snippet"):
+                    print(f"         \033[2m  {ex['_ep_snippet']}\033[0m")
+            print()
+            print("  y / r / m / s / q  > ", end="", flush=True)
+            key = _getkey()
+            print(key)
+
+        if key == "q":
+            quit_requested = True
+        elif key == "y":
+            mind.ratify_term(tkind, name)
+            print("  ✓ ratified\n")
+            ratified += 1
+        elif key == "r":
+            new_name = input("  rename to (new canonical name): ").strip()
+            if new_name:
+                try:
+                    canonical = mind._gate(tkind, new_name, force=True)
+                    mind.ratify_term(tkind, canonical)
+                    n = mind.merge_term(tkind, name, canonical)
+                    print(f"  ✓ renamed → {canonical}  ({n} claims rewritten)\n")
+                    renamed += 1
+                except Exception as e:
+                    print(f"  ✗ {e}\n")
+            else:
+                print("  skipped (no name given)\n")
+                skipped += 1
+        elif key == "m":
+            others = [
+                t2 for t2 in mind.vocab(kind=tkind)
+                if t2["name"] != name and t2["status"] != "deprecated"
+            ]
+            if others:
+                from . import scoring
+                close = sorted(others,
+                               key=lambda t2: -scoring.similarity(name, t2["name"]))[:6]
+                print("  similar terms: " +
+                      ", ".join(f"{t2['name']} ({t2['status']})" for t2 in close))
+            target = input("  merge into (name): ").strip()
+            if target:
+                try:
+                    n = mind.merge_term(tkind, name, target)
+                    print(f"  ✓ merged → {target}  ({n} claims rewritten)\n")
+                    merged += 1
+                except Exception as e:
+                    print(f"  ✗ {e}\n")
+            else:
+                print("  skipped (no target given)\n")
+                skipped += 1
+        else:  # s or anything else
+            print("  – skipped\n")
+            skipped += 1
+
+    print(f"{'─'*60}")
+    print(f"  done: {ratified} ratified, {renamed} renamed, {merged} merged, {skipped} skipped")
+    print(f"  wrong claims? copy the Claim/… id and run: tm contradict <id>")
+    print(f"{'─'*60}\n")
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="tm", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -108,6 +276,11 @@ def main(argv: list[str] | None = None) -> int:
     sp.add_argument("kind", choices=["predicate", "entity_type"])
     sp.add_argument("name")
 
+    sp = sub.add_parser("curate", help="interactive one-key vocab curation session")
+    sp.add_argument("--kind", choices=["predicate", "entity_type"], help="limit to one kind")
+    sp.add_argument("--min-uses", type=int, default=1, metavar="N",
+                    help="skip terms used fewer than N times (default 1)")
+
     sp = sub.add_parser("merge-term", help="merge a term into another (rewrites claims)")
     sp.add_argument("kind", choices=["predicate", "entity_type"])
     sp.add_argument("name")
@@ -136,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
     except NoveltyResisted as e:
         print(f"resisted: {e}", file=sys.stderr)
         return 2
+    if out is None:
+        return 0
     if args.json or not isinstance(out, str):
         _print(out)
     else:
@@ -218,6 +393,9 @@ def _run(mind: Mind, args):  # noqa: C901
         ) or "(empty vocabulary)"
     if args.cmd == "ratify":
         return mind.ratify_term(args.kind, args.name)
+    if args.cmd == "curate":
+        _curate(mind, kind=args.kind, min_uses=args.min_uses)
+        return None
     if args.cmd == "merge-term":
         return {"claims_rewritten": mind.merge_term(args.kind, args.name, args.into)}
     if args.cmd == "journal":

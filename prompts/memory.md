@@ -25,9 +25,12 @@ hypotheses until confirmed; treat them that way.
 4. **Hedge candidates.** When answering from a belief with status
    `candidate` or low credence, say so naturally ("I believe X — is that
    right?"). The user's answer is evidence: confirm or supersede it.
-5. **Ask one proving question.** When the conversation has a natural
-   opening, check `memory_review` and weave in at most one of its
-   questions. Never interrogate.
+5. **Ask one proving question.** When prefetch surfaces a candidate
+   belief in the "Confirmation queue", ask Ivan to confirm or correct it
+   if the topic is live — one question max per turn, woven naturally into
+   the response ("Is it still the case that…?"). No tool call needed to
+   find the question; use `memory_review` only for proactive standalone
+   sweeps outside the current topic.
 
 ## Vocabulary discipline
 

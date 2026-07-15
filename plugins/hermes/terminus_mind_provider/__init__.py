@@ -25,32 +25,54 @@ import sys
 import threading
 from pathlib import Path
 
-# When this package is symlinked into hermes-agent/plugins/memory/, resolve
-# the symlink back to the terminus-mind checkout and use its src/ directly —
-# no install step, always the current code.
-try:
-    import terminus_mind  # noqa: F401
-except ImportError:
-    _src = Path(__file__).resolve().parents[3] / "src"
-    if _src.is_dir():
-        sys.path.insert(0, str(_src))
-
-from terminus_mind import Mind, TerminusClient  # noqa: E402
-from terminus_mind.tools import TOOL_SPECS, dispatch  # noqa: E402
+from agent.memory_provider import MemoryProvider
 
 logger = logging.getLogger(__name__)
+
+# Lazy imports — delay until needed so plugin loader doesn't fail on httpx unavailability
+Mind = None
+TerminusClient = None
+TOOL_SPECS = None
+dispatch = None
+
+
+def _ensure_terminus_mind():
+    """Ensure terminus-mind is importable and imported."""
+    global Mind, TerminusClient, TOOL_SPECS, dispatch
+    if Mind is not None:
+        return
+    # When this package is symlinked into hermes-agent/plugins/memory/, resolve
+    # the symlink back to the terminus-mind checkout and use its src/ directly —
+    # no install step, always the current code.
+    try:
+        from terminus_mind import Mind as _Mind, TerminusClient as _TC  # noqa: F401
+        from terminus_mind.tools import TOOL_SPECS as _TOOL_SPECS, dispatch as _dispatch
+    except ImportError:
+        _src = Path(__file__).resolve().parents[3] / "src"
+        if _src.is_dir():
+            sys.path.insert(0, str(_src))
+        from terminus_mind import Mind as _Mind, TerminusClient as _TC
+        from terminus_mind.tools import TOOL_SPECS as _TOOL_SPECS, dispatch as _dispatch
+
+    # Assign to module globals
+    globals()['Mind'] = _Mind
+    globals()['TerminusClient'] = _TC
+    globals()['TOOL_SPECS'] = _TOOL_SPECS
+    globals()['dispatch'] = _dispatch
 
 FLUSH_TURNS = 6          # matches hermes' own flush_min_turns default
 PROMPT_BELIEFS = 12      # confirmed beliefs in the static prompt block
 PREFETCH_LIMIT = 6
 
 
-class TerminusMindProvider:
+
+class TerminusMindProvider(MemoryProvider):
     @property
     def name(self) -> str:
         return "terminus-mind"
 
     def __init__(self) -> None:
+        logger.info("TerminusMindProvider.__init__ called")
         self._mind: Mind | None = None
         self._session_id = ""
         self._writes_enabled = True
@@ -65,12 +87,28 @@ class TerminusMindProvider:
         return True
 
     def initialize(self, session_id: str, **kwargs) -> None:
+        logger.info(f"TerminusMindProvider.initialize called for session {session_id}")
+        _ensure_terminus_mind()
         self._session_id = session_id
         self._writes_enabled = kwargs.get("agent_context", "primary") == "primary"
         agent = os.environ.get("TM_AGENT") or f"hermes:{kwargs.get('agent_identity', 'default')}"
         self._mind = Mind(TerminusClient(), agent=agent)
         self._mind.init()
         self._refresh_prompt_block()
+        logger.info(f"TerminusMindProvider initialized successfully for {agent}")
+
+    @staticmethod
+    def _load_protocol() -> str:
+        """Load the memory behavioral protocol from prompts/memory.md."""
+        try:
+            # resolve from the symlinked plugin back to the project root
+            base = Path(__file__).resolve().parents[3]
+            p = base / "prompts" / "memory.md"
+            if p.exists():
+                return p.read_text().strip()
+        except Exception:
+            pass
+        return ""
 
     def _refresh_prompt_block(self) -> None:
         try:
@@ -86,17 +124,20 @@ class TerminusMindProvider:
 
             claims.sort(key=lambda c: -scoring.rank_score(c))
             top = (pinned + claims)[:PROMPT_BELIEFS]
+
+            protocol = self._load_protocol()
             if not top:
-                self._prompt_block = ""
+                self._prompt_block = protocol
                 return
             lines = "\n".join(f"- {c['fact_text']}" for c in top)
-            self._prompt_block = (
+            world_model = (
                 "## Established world model (terminus-mind)\n"
                 "Proven beliefs; trust these:\n" + lines
             )
+            self._prompt_block = (protocol + "\n\n" + world_model) if protocol else world_model
         except Exception:
             logger.exception("terminus-mind: prompt block refresh failed")
-            self._prompt_block = ""
+            self._prompt_block = self._load_protocol()
 
     def system_prompt_block(self) -> str:
         return self._prompt_block
@@ -116,11 +157,20 @@ class TerminusMindProvider:
             s = c["_scores"]
             tag = "pinned" if c.get("pinned") else f"{c['status']}, credence {s['credence']:.2f}"
             lines.append(f"- {c['fact_text']} ({tag}; id {c['@id']})")
-        return (
+        output = (
             "## Recalled beliefs (terminus-mind)\n"
             "Hedge or verify anything not confirmed/pinned; confirm or correct "
             "via memory tools as the conversation clarifies:\n" + "\n".join(lines)
         )
+        # Surface candidates for confirmation only when topically-relevant hits contain them.
+        to_confirm = [h for h in hits if h.get("status") == "candidate"][:3]
+        if to_confirm:
+            items = "\n".join(f"- \"{c['fact_text']}\" (id {c['@id']})" for c in to_confirm)
+            output += (
+                f"\n\nConfirmation queue: if they come up naturally, ask Ivan to confirm or "
+                f"correct:\n{items}"
+            )
+        return output
 
     # -- auto-observe: turn buffering ---------------------------------------
 
@@ -150,6 +200,7 @@ class TerminusMindProvider:
     # -- tools ----------------------------------------------------------------
 
     def get_tool_schemas(self):
+        _ensure_terminus_mind()
         # memory_observe is excluded: sync_turn auto-observes, and a manual
         # observe on top would double-record episodes.
         specs = [s for s in TOOL_SPECS if s["name"] != "memory_observe"]
@@ -159,6 +210,7 @@ class TerminusMindProvider:
         return specs
 
     def handle_tool_call(self, tool_name: str, args, **kwargs) -> str:
+        _ensure_terminus_mind()
         return json.dumps(dispatch(self._mind, tool_name, args or {}), default=str)
 
     # -- optional hooks ---------------------------------------------------------
