@@ -70,9 +70,13 @@ tm log / tm history Claim/... / tm stats
 
 ## Agent integration (hermes)
 
-**Recommended: MCP.** `tm-mcp` serves the memory over stdio to any
-MCP-speaking agent — the world model stays decoupled from (and outlives) any
-one framework. Point hermes' MCP config at:
+Three integration paths, in order of recommendation:
+
+### 1. MCP (universal, recommended)
+
+`tm-mcp` serves the memory over stdio to any MCP-speaking agent — the world
+model stays decoupled from (and outlives) any one framework. Point hermes'
+MCP config at:
 
 ```json
 {
@@ -96,11 +100,35 @@ Alternative with no uv in the path at all (faster spawn, but you own keeping
 the venv synced): use `/path/to/terminus-mind/.venv/bin/tm-mcp` as the
 command directly.
 
-**Planned: hermes memory-provider plugin** (ROADMAP 1.5) — deep hook
-integration (`sync_turn`, `prefetch`, `on_session_end`) wrapping the same
-`Mind` in-process; MCP remains the interface for all other agents.
+### 2. Hermes memory-provider plugin (deep integration)
 
-**Fallback: direct import** (hermes runs Python) — same tools, in-process:
+Deep hook integration (`sync_turn`, `prefetch`, `on_session_end`) wrapping
+the same `Mind` in-process; auto-observes conversation exchanges and surfaces
+candidates in the system prompt. Only for hermes; MCP remains the interface
+for all other agents.
+
+**Installation:**
+
+```bash
+./scripts/install-hermes-plugin.sh
+```
+
+Then configure in `~/.hermes/profiles/<profile>/config.yaml`:
+
+```yaml
+memory:
+  provider: terminus-mind
+```
+
+Restart hermes and verify with `tm curate`. The integration includes:
+- Auto-observing turns (6-turn batching for coherent episode granularity)
+- Topically-gated candidate confirmation (only when related to conversation)
+- System prompt injection with memory protocol and established beliefs
+- Friction journal (memory system diagnostics under `journal/`)
+
+### 3. Direct import (fallback)
+
+Hermes runs Python, so same tools in-process:
 
 ```python
 from terminus_mind import Mind
@@ -112,14 +140,16 @@ mind.init()
 result = dispatch(mind, tool_call.name, tool_call.arguments)
 ```
 
-The nine tools encode the adjudication loop in their descriptions: observe
-each exchange, **recall before asserting**, then choose
-assert / confirm / supersede / contradict. Vocabulary resistance comes back
-as a normal result (`resisted: true` + suggestions) so the model adjudicates
-instead of crashing. `memory_review` gives the agent questions to weave into
-conversation — uncertainty is the engine of the human-proving loop. Add
-[prompts/memory.md](prompts/memory.md) to the agent's system prompt to make
-the loop reliable.
+---
+
+**Memory tools and the adjudication loop.** The eight tools encode the loop
+in their descriptions: observe each exchange, **recall before asserting**,
+then choose assert / confirm / supersede / contradict. Vocabulary resistance
+comes back as a normal result (`resisted: true` + suggestions) so the model
+adjudicates instead of crashing. `memory_review` gives the agent questions to
+weave into conversation — uncertainty is the engine of the human-proving loop.
+Add [prompts/memory.md](prompts/memory.md) to the agent's system prompt to
+make the loop reliable.
 
 **Friction journal.** `memory_journal` is where the agent reports problems
 with the memory system *itself* (resistance misfires, recall misses, errors)
@@ -127,9 +157,9 @@ with the memory system *itself* (resistance misfires, recall misses, errors)
 works even when the database doesn't. `tm journal` aggregates by kind;
 repeated frictions become threshold changes or roadmap items.
 
-The agent's offline "sleep" job should pull `unconsolidated_episodes()`,
-distill them through the same primitives, `mark_consolidated()`, then run
-`consolidate()`.
+**Agent sleep job.** The agent's offline consolidation should pull
+`unconsolidated_episodes()`, distill them through the same primitives,
+`mark_consolidated()`, then run `consolidate()`.
 
 ## Status
 
